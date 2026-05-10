@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MindMap</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#12121f;color:#e0e0e0;height:100vh;display:flex;flex-direction:column;overflow:hidden;user-select:none}
+
+/* ── Toolbar ── */
+#toolbar{display:flex;align-items:center;gap:5px;padding:7px 10px;background:#1a1a2e;border-bottom:1px solid #2a2a4a;flex-wrap:wrap;min-height:48px}
+.tb-group{display:flex;align-items:center;gap:4px}
+.sep{width:1px;height:26px;background:#2a2a4a;margin:0 3px;flex-shrink:0}
+.btn{display:flex;align-items:center;gap:5px;padding:5px 9px;border:1px solid #2a2a4a;border-radius:6px;background:#12121f;color:#c0c0d0;cursor:pointer;font-size:12px;font-family:inherit;transition:background .12s,border-color .12s;white-space:nowrap}
+.btn:hover{background:#22223a;border-color:#3a3a5a}
+.btn.active{background:#1e1e4a;border-color:#5a6fff;color:#fff}
+.btn.danger:hover{background:#3a1520;border-color:#e94560;color:#e94560}
+.btn svg{flex-shrink:0}
+label.lbl{font-size:11px;color:#777}
+input[type=color]{width:28px;height:26px;border:1px solid #2a2a4a;border-radius:4px;cursor:pointer;background:none;padding:1px}
+input[type=range]{width:65px;accent-color:#5a6fff;cursor:pointer}
+input[type=number]{width:46px;background:#12121f;border:1px solid #2a2a4a;color:#e0e0e0;padding:3px 5px;border-radius:4px;font-size:12px}
+select.sel{background:#12121f;border:1px solid #2a2a4a;color:#e0e0e0;padding:3px 6px;border-radius:4px;font-size:12px;cursor:pointer}
+input.txt-in{background:#12121f;border:1px solid #2a2a4a;color:#e0e0e0;padding:3px 6px;border-radius:4px;font-size:12px;width:110px}
+
+/* ── Canvas ── */
+#canvas-wrap{flex:1;overflow:hidden;position:relative;background:#12121f}
+#canvas{width:100%;height:100%;display:block}
+
+/* ── Nodes ── */
+.node-grp{cursor:move}
+.node-shape{transition:filter .1s}
+.node-text{pointer-events:none;font-family:system-ui,sans-serif}
+.node-grp.selected .node-shape{filter:drop-shadow(0 0 5px #5a6fff99)}
+
+/* ── Edges ── */
+.edge-grp{cursor:pointer}
+.edge-path{fill:none;transition:filter .1s}
+.edge-hit{fill:none;stroke:transparent;stroke-width:14;cursor:pointer}
+.edge-label{pointer-events:none;font-family:system-ui,sans-serif}
+.edge-grp.selected .edge-path{filter:drop-shadow(0 0 4px #5a6fff99)}
+
+/* ── Resize handles ── */
+.rh{cursor:inherit;fill:#fff;stroke:#5a6fff;stroke-width:1.5}
+
+/* ── Status ── */
+#status{padding:3px 12px;font-size:11px;color:#555;background:#1a1a2e;border-top:1px solid #2a2a4a;flex-shrink:0}
+
+/* ── Edit overlay ── */
+#edit-overlay{position:fixed;background:rgba(20,20,50,.95);color:#fff;border:2px solid #5a6fff;border-radius:6px;font-family:system-ui,sans-serif;text-align:center;resize:none;outline:none;z-index:999;padding:6px;line-height:1.3;overflow:hidden}
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <!-- Tool buttons -->
+  <div class="tb-group">
+    <button class="btn active" id="btn-select"  onclick="setTool('select')"  title="Select  V">
+      <svg width="12" height="12" viewBox="0 0 12 12"><path d="M1 1 L1 10 L4 7 L6 11 L7.5 10.3 L5.5 6.3 L9 6Z" fill="currentColor"/></svg>Select
+    </button>
+    <button class="btn" id="btn-rect"    onclick="setTool('rect')"    title="Rectangle  R">
+      <svg width="12" height="10" viewBox="0 0 12 10"><rect x="1" y="1" width="10" height="8" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>Rect
+    </button>
+    <button class="btn" id="btn-rounded" onclick="setTool('rounded')" title="Rounded  U">
+      <svg width="12" height="10" viewBox="0 0 12 10"><rect x="1" y="1" width="10" height="8" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>Round
+    </button>
+    <button class="btn" id="btn-ellipse" onclick="setTool('ellipse')" title="Ellipse  E">
+      <svg width="12" height="10" viewBox="0 0 12 10"><ellipse cx="6" cy="5" rx="5" ry="4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>Ellipse
+    </button>
+    <button class="btn" id="btn-diamond" onclick="setTool('diamond')" title="Diamond  D">
+      <svg width="12" height="12" viewBox="0 0 12 12"><polygon points="6,1 11,6 6,11 1,6" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>Diamond
+    </button>
+    <button class="btn" id="btn-text"    onclick="setTool('text')"    title="Text node  T">
+      <svg width="12" height="12" viewBox="0 0 12 12"><text x="1" y="11" font-size="12" font-weight="bold" fill="currentColor">T</text></svg>Text
+    </button>
+    <button class="btn" id="btn-connect" onclick="setTool('connect')" title="Connect  C">
+      <svg width="14" height="12" viewBox="0 0 14 12"><line x1="1" y1="6" x2="10" y2="6" stroke="currentColor" stroke-width="1.5"/><polygon points="10,3 14,6 10,9" fill="currentColor"/></svg>Connect
+    </button>
+    <button class="btn" id="btn-branch" onclick="addBranchFromSel()" title="Branch from selection  Tab">
+      <svg width="14" height="12" viewBox="0 0 14 12"><path d="M1 10 C 4 10, 6 6, 9 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M1 10 C 4 10, 6 8, 9 9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Branch
+    </button>
+  </div>
+
+  <div class="sep"></div>
+
+  <!-- Node properties -->
+  <div class="tb-group" id="node-props">
+    <label class="lbl">Fill</label>
+    <input type="color" id="p-fill"   value="#1e2d5a" oninput="setProp('fill',this.value)">
+    <label class="lbl">Border</label>
+    <input type="color" id="p-stroke" value="#5a6fff" oninput="setProp('stroke',this.value)">
+    <label class="lbl">Text</label>
+    <input type="color" id="p-tc"     value="#ffffff" oninput="setProp('textColor',this.value)">
+    <label class="lbl">px</label>
+    <input type="number" id="p-fs"   value="14" min="8" max="64" title="Font size" oninput="setProp('fontSize',+this.value)">
+    <label class="lbl">W</label>
+    <input type="number" id="p-w"    value="140" min="30" max="600" title="Width"  oninput="setPropWH('w',+this.value)">
+    <label class="lbl">H</label>
+    <input type="number" id="p-h"    value="60"  min="20" max="400" title="Height" oninput="setPropWH('h',+this.value)">
+  </div>
+
+  <!-- Edge properties -->
+  <div class="tb-group" id="edge-props" style="display:none">
+    <label class="lbl">Color</label>
+    <input type="color" id="p-ec"  value="#5a6fff" oninput="setEdgeProp('stroke',this.value)">
+    <label class="lbl">W</label>
+    <input type="range" id="p-ew"  min="1" max="8" value="2" title="Stroke width" oninput="setEdgeProp('strokeWidth',+this.value)">
+    <label class="lbl">Dir</label>
+    <select class="sel" id="p-edir" onchange="setEdgeProp('direction',this.value)">
+      <option value="forward">→ Forward</option>
+      <option value="backward">← Backward</option>
+      <option value="both">↔ Both</option>
+      <option value="none">— Line</option>
+    </select>
+    <label class="lbl">Style</label>
+    <select class="sel" id="p-estyle" onchange="setEdgeProp('style',this.value)">
+      <option value="straight">Straight</option>
+      <option value="curved">Curved</option>
+      <option value="branch">Branch</option>
+    </select>
+    <label class="lbl">Label</label>
+    <input type="text" class="txt-in" id="p-elabel" placeholder="Edge label…" oninput="setEdgeProp('label',this.value)">
+  </div>
+
+  <div class="sep"></div>
+
+  <!-- Actions -->
+  <div class="tb-group">
+    <button class="btn" onclick="undo()" title="Undo  Ctrl+Z">↩ Undo</button>
+    <button class="btn" onclick="redo()" title="Redo  Ctrl+Y">↪ Redo</button>
+  </div>
+  <div class="sep"></div>
+  <div class="tb-group">
+    <button class="btn" onclick="exportSVG()"  title="Export SVG">⬇ SVG</button>
+    <button class="btn" onclick="exportJSON()" title="Save JSON">💾 Save</button>
+    <button class="btn" onclick="importJSON()" title="Load JSON">📂 Load</button>
+    <button class="btn danger" onclick="clearAll()" title="Clear canvas">✕ Clear</button>
+  </div>
+</div>
+
+<div id="canvas-wrap">
+  <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+    <defs id="svg-defs">
+      <pattern id="grid-dots" width="24" height="24" patternUnits="userSpaceOnUse">
+        <circle cx="0.8" cy="0.8" r="0.8" fill="#2a2a4a"/>
+      </pattern>
+    </defs>
+    <g id="canvas-g">
+      <rect id="grid-bg" x="-9999" y="-9999" width="19998" height="19998" fill="url(#grid-dots)"/>
+      <g id="edges-layer"></g>
+      <g id="nodes-layer"></g>
+      <g id="overlay-layer"></g>
+    </g>
+  </svg>
+</div>
+
+<div id="status">
+  Tab = child branch · Enter = sibling · Drag a branch onto another node to reparent · Dbl-click canvas = node · Dbl-click node to edit · Del to remove · Scroll = zoom · Alt+drag = pan
+</div>
+
+<input type="file" id="file-in" accept=".json" style="display:none" onchange="loadFile(this)">
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  CONSTANTS & DEFAULTS
+// ═══════════════════════════════════════════════════════════════
+const DN = { fill:'#1e2d5a', stroke:'#5a6fff', textColor:'#ffffff', strokeWidth:2, fontSize:14, w:140, h:60 };
+const DE = { stroke:'#5a6fff', strokeWidth:2, direction:'forward', style:'straight', label:'' };
+const MIN_W = 40, MIN_H = 24;
+
+// ═══════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════
+const S = {
+  nodes: [],
+  edges: [],
+  sel: null,        // {type:'node'|'edge', id}
+  tool: 'select',
+  connecting: null, // node id awaiting second click
+  dragging: null,   // {id, sx, sy, ox, oy}
+  resizing: null,   // {id, handle, sx, sy, ox, oy, ow, oh}
+  panDrag: null,    // {sx, sy, opx, opy}
+  pan: {x:0, y:0},
+  zoom: 1,
+  nid: 1,
+};
+const history = [], redoStack = [];
+
+// ═══════════════════════════════════════════════════════════════
+//  DOM REFS
+// ═══════════════════════════════════════════════════════════════
+const svg      = document.getElementById('canvas');
+const canvasG  = document.getElementById('canvas-g');
+const edgesL   = document.getElementById('edges-layer');
+const nodesL   = document.getElementById('nodes-layer');
+const overlayL = document.getElementById('overlay-layer');
+const svgDefs  = document.getElementById('svg-defs');
+
+// ═══════════════════════════════════════════════════════════════
+//  UTILITIES
+// ═══════════════════════════════════════════════════════════════
+const uid   = () => 'n' + (S.nid++);
+const getN  = id => S.nodes.find(n => n.id === id);
+const getE  = id => S.edges.find(e => e.id === id);
+const ns    = 'http://www.w3.org/2000/svg';
+const el    = tag => document.createElementNS(ns, tag);
+
+function svgPt(e) {
+  const r = svg.getBoundingClientRect();
+  return { x: (e.clientX - r.left - S.pan.x) / S.zoom,
+           y: (e.clientY - r.top  - S.pan.y) / S.zoom };
+}
+function screenPt(sx, sy) {           // canvas-space → screen-space
+  const r = svg.getBoundingClientRect();
+  return { x: sx * S.zoom + S.pan.x + r.left,
+           y: sy * S.zoom + S.pan.y + r.top };
+}
+function setStatus(msg) { document.getElementById('status').textContent = msg; }
+
+// Attachment point on node boundary towards (tx,ty)
+function attachPt(node, tx, ty) {
+  const cx = node.x + node.w/2, cy = node.y + node.h/2;
+  const dx = tx - cx, dy = ty - cy;
+  const len = Math.sqrt(dx*dx + dy*dy);
+  if (len < 0.01) return {x:cx, y:cy};
+  const ux = dx/len, uy = dy/len;
+  const hw = node.w/2, hh = node.h/2;
+  let t;
+  if (node.shape === 'ellipse') {
+    t = 1 / Math.sqrt((ux/hw)**2 + (uy/hh)**2);
+  } else if (node.shape === 'diamond') {
+    const d = Math.abs(ux)/hw + Math.abs(uy)/hh;
+    t = d < 1e-6 ? hw : 1/d;
+  } else { // rect, rounded, text
+    t = Math.abs(ux) < 1e-6 ? hh/Math.abs(uy)
+      : Math.abs(uy) < 1e-6 ? hw/Math.abs(ux)
+      : Math.min(hw/Math.abs(ux), hh/Math.abs(uy));
+  }
+  return { x: cx + t*ux, y: cy + t*uy };
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  MARKERS
+// ═══════════════════════════════════════════════════════════════
+const markers = new Set();
+function ensureMarker(color, tip) {
+  const safe = color.replace(/[^a-fA-F0-9]/g,'');
+  const id = `mk-${tip}-${safe}`;
+  if (markers.has(id)) return id;
+  markers.add(id);
+  const m = el('marker');
+  m.setAttribute('id', id);
+  m.setAttribute('markerWidth', '9');
+  m.setAttribute('markerHeight', '9');
+  m.setAttribute('refX', tip === 'end' ? '8' : '1');
+  m.setAttribute('refY', '4.5');
+  m.setAttribute('orient', 'auto');
+  m.setAttribute('markerUnits', 'strokeWidth');
+  const p = el('path');
+  p.setAttribute('d', tip === 'end' ? 'M0,0 L0,9 L9,4.5Z' : 'M9,0 L9,9 L0,4.5Z');
+  p.setAttribute('fill', color);
+  m.appendChild(p);
+  svgDefs.appendChild(m);
+  return id;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  RENDER — NODES
+// ═══════════════════════════════════════════════════════════════
+function renderNodes() {
+  const live = new Set(S.nodes.map(n => n.id));
+  [...nodesL.children].forEach(c => { if (!live.has(c.dataset.id)) c.remove(); });
+  S.nodes.forEach(node => {
+    let g = nodesL.querySelector(`[data-id="${node.id}"]`);
+    if (!g) { g = makeNodeEl(node); nodesL.appendChild(g); }
+    else     { syncNodeEl(g, node); }
+    g.classList.toggle('selected', !!(S.sel?.type === 'node' && S.sel.id === node.id));
+  });
+}
+
+function makeNodeEl(node) {
+  const g = el('g'); g.setAttribute('class','node-grp'); g.dataset.id = node.id;
+  const shape = el(svgTag(node.shape)); shape.setAttribute('class','node-shape'); g.appendChild(shape);
+  const txt = el('text'); txt.setAttribute('class','node-text'); g.appendChild(txt);
+  g.addEventListener('mousedown', onNodeMD);
+  g.addEventListener('dblclick',  onNodeDbl);
+  syncNodeEl(g, node);
+  return g;
+}
+
+function svgTag(shape) {
+  if (shape === 'ellipse') return 'ellipse';
+  if (shape === 'diamond') return 'polygon';
+  return 'rect';
+}
+
+function syncNodeEl(g, node) {
+  const shape = g.children[0];
+  const txt   = g.children[1];
+  const cx = node.x + node.w/2, cy = node.y + node.h/2;
+
+  if (node.shape === 'ellipse') {
+    shape.setAttribute('cx', cx); shape.setAttribute('cy', cy);
+    shape.setAttribute('rx', node.w/2); shape.setAttribute('ry', node.h/2);
+  } else if (node.shape === 'diamond') {
+    shape.setAttribute('points', `${cx},${node.y} ${node.x+node.w},${cy} ${cx},${node.y+node.h} ${node.x},${cy}`);
+  } else {
+    shape.setAttribute('x', node.x); shape.setAttribute('y', node.y);
+    shape.setAttribute('width', node.w); shape.setAttribute('height', node.h);
+    shape.setAttribute('rx', node.shape === 'rounded' ? Math.min(12, node.h/3) : 0);
+  }
+
+  if (node.shape !== 'text') {
+    shape.setAttribute('fill',         node.fill        || DN.fill);
+    shape.setAttribute('stroke',       node.stroke      || DN.stroke);
+    shape.setAttribute('stroke-width', node.strokeWidth || DN.strokeWidth);
+    shape.removeAttribute('pointer-events');
+    shape.style.display = '';
+  } else {
+    // Text-only nodes: keep an invisible rect so the whole node bounds are
+    // hit-testable (otherwise you can only grab the actual text glyphs).
+    shape.setAttribute('fill', 'transparent');
+    shape.setAttribute('stroke', 'none');
+    shape.setAttribute('pointer-events', 'all');
+    shape.style.display = '';
+  }
+
+  setTextSVG(txt, node.text || '', cx, cy, node.fontSize || DN.fontSize, node.textColor || DN.textColor);
+}
+
+function setTextSVG(txtEl, text, cx, cy, fontSize, color) {
+  while (txtEl.firstChild) txtEl.removeChild(txtEl.firstChild);
+  txtEl.setAttribute('fill', color);
+  txtEl.setAttribute('font-size', fontSize);
+  txtEl.setAttribute('text-anchor', 'middle');
+  const lines = text.split('\n');
+  const lineH = fontSize * 1.35;
+  if (lines.length === 1) {
+    txtEl.setAttribute('x', cx); txtEl.setAttribute('y', cy);
+    txtEl.setAttribute('dominant-baseline','middle');
+    txtEl.textContent = text;
+  } else {
+    txtEl.removeAttribute('dominant-baseline');
+    const startY = cy - (lines.length - 1) * lineH / 2;
+    lines.forEach((line, i) => {
+      const ts = el('tspan');
+      ts.setAttribute('x', cx);
+      ts.setAttribute('y', startY + i * lineH);
+      ts.setAttribute('dominant-baseline','middle');
+      ts.textContent = line;
+      txtEl.appendChild(ts);
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  RENDER — EDGES
+// ═══════════════════════════════════════════════════════════════
+function renderEdges() {
+  const live = new Set(S.edges.map(e => e.id));
+  [...edgesL.children].forEach(c => { if (!live.has(c.dataset.id)) c.remove(); });
+  S.edges.forEach(edge => {
+    let g = edgesL.querySelector(`[data-id="${edge.id}"]`);
+    if (!g) { g = makeEdgeEl(edge); edgesL.appendChild(g); }
+    else     { syncEdgeEl(g, edge); }
+    g.classList.toggle('selected', !!(S.sel?.type === 'edge' && S.sel.id === edge.id));
+  });
+}
+
+function makeEdgeEl(edge) {
+  const g = el('g'); g.setAttribute('class','edge-grp'); g.dataset.id = edge.id;
+  const path = el('path'); path.setAttribute('class','edge-path'); g.appendChild(path);
+  const hit  = el('path'); hit.setAttribute('class','edge-hit');   g.appendChild(hit);
+  const lbl  = el('text'); lbl.setAttribute('class','edge-label'); g.appendChild(lbl);
+  g.addEventListener('mousedown', onEdgeMD);
+  syncEdgeEl(g, edge);
+  return g;
+}
+
+function syncEdgeEl(g, edge) {
+  const from = getN(edge.from), to = getN(edge.to);
+  if (!from || !to) return;
+
+  let p1, p2, d;
+
+  if (edge.style === 'branch') {
+    // MindNode-style branch: smooth horizontal cubic Bezier
+    // ending UNDER the target text, with a short underline tail.
+    const fromCx = from.x + from.w/2, toCx = to.x + to.w/2;
+    const childOnRight = toCx >= fromCx;
+
+    // If `from` is itself a branch endpoint, start where its underline ends
+    // (so sub-branches connect visually to the parent line, not to its center).
+    const fromIncoming = S.edges.find(ed => ed.to === from.id && ed.style === 'branch');
+    let startX, startY;
+    if (fromIncoming) {
+      const grand = getN(fromIncoming.from);
+      const fromOnRight = grand ? (fromCx >= grand.x + grand.w/2) : true;
+      startX = fromOnRight ? from.x + from.w : from.x;
+      startY = from.y + from.h - 2;
+    } else {
+      startX = childOnRight ? from.x + from.w : from.x;
+      startY = from.y + from.h/2;
+    }
+
+    const endX   = childOnRight ? to.x : to.x + to.w;
+    const tipX   = childOnRight ? to.x + to.w : to.x;
+    const underY = to.y + to.h - 2;
+    const dx = endX - startX;
+    const off = Math.max(40, Math.abs(dx) * 0.5);
+    const sign = childOnRight ? 1 : -1;
+    d = `M ${startX} ${startY} C ${startX + sign*off} ${startY} ${endX - sign*off} ${underY} ${endX} ${underY} L ${tipX} ${underY}`;
+    // For label positioning + bbox calc later
+    p1 = { x: startX, y: startY };
+    p2 = { x: (endX+tipX)/2, y: underY };
+  } else {
+    const tc = { x: to.x + to.w/2,   y: to.y + to.h/2 };
+    const fc = { x: from.x + from.w/2, y: from.y + from.h/2 };
+    p1 = attachPt(from, tc.x, tc.y);
+    p2 = attachPt(to,   fc.x, fc.y);
+
+    if (edge.style === 'curved') {
+      const dx = p2.x - p1.x, dy = p2.y - p1.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const off  = dist * 0.35;
+      // Perpendicular offset for control point
+      const px = -dy/dist * off, py = dx/dist * off;
+      d = `M ${p1.x} ${p1.y} Q ${(p1.x+p2.x)/2+px} ${(p1.y+p2.y)/2+py} ${p2.x} ${p2.y}`;
+    } else {
+      d = `M ${p1.x} ${p1.y} L ${p2.x} ${p2.y}`;
+    }
+  }
+
+  const color = edge.stroke || DE.stroke;
+  const width = edge.strokeWidth || DE.strokeWidth;
+  const dir   = edge.direction  || DE.direction;
+
+  const path = g.querySelector('.edge-path');
+  const hit  = g.querySelector('.edge-hit');
+  const lbl  = g.querySelector('.edge-label');
+
+  path.setAttribute('d', d);
+  path.setAttribute('stroke', color);
+  path.setAttribute('stroke-width', width);
+
+  const em = ensureMarker(color,'end'), sm = ensureMarker(color,'start');
+  path.setAttribute('marker-end',   (dir === 'forward' || dir === 'both') ? `url(#${em})` : '');
+  path.setAttribute('marker-start', (dir === 'backward'|| dir === 'both') ? `url(#${sm})` : '');
+  path.setAttribute('stroke-dasharray', edge.dashed ? '6,4' : '');
+
+  hit.setAttribute('d', d);
+
+  // Label at midpoint
+  const mx = (p1.x+p2.x)/2, my = (p1.y+p2.y)/2;
+  lbl.setAttribute('x', mx); lbl.setAttribute('y', my - 9);
+  lbl.setAttribute('font-size', 12);
+  lbl.setAttribute('fill', '#c0c0d0');
+  lbl.textContent = edge.label || '';
+
+  // Label background pill (re-render if needed)
+  let bg = g.querySelector('.edge-lbl-bg');
+  if (edge.label) {
+    if (!bg) {
+      bg = el('rect'); bg.setAttribute('class','edge-lbl-bg');
+      bg.setAttribute('rx','4'); bg.setAttribute('fill','rgba(18,18,31,.85)');
+      g.insertBefore(bg, lbl);
+    }
+    // Position after text renders (deferred)
+    requestAnimationFrame(() => {
+      try {
+        const bb = lbl.getBBox();
+        bg.setAttribute('x',  bb.x - 4);  bg.setAttribute('y',  bb.y - 2);
+        bg.setAttribute('width',  bb.width  + 8);
+        bg.setAttribute('height', bb.height + 4);
+      } catch(_){}
+    });
+  } else if (bg) { bg.remove(); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  RENDER — SELECTION OVERLAY (resize handles)
+// ═══════════════════════════════════════════════════════════════
+const HANDLES = [
+  {id:'nw',fx:0,fy:0,cx:'nw-resize'},{id:'n',fx:.5,fy:0,cx:'n-resize'},{id:'ne',fx:1,fy:0,cx:'ne-resize'},
+  {id:'e',fx:1,fy:.5,cx:'e-resize'},
+  {id:'se',fx:1,fy:1,cx:'se-resize'},{id:'s',fx:.5,fy:1,cx:'s-resize'},{id:'sw',fx:0,fy:1,cx:'sw-resize'},
+  {id:'w',fx:0,fy:.5,cx:'w-resize'},
+];
+function renderOverlay() {
+  overlayL.innerHTML = '';
+  if (!S.sel || S.sel.type !== 'node') return;
+  const node = getN(S.sel.id); if (!node) return;
+  HANDLES.forEach(h => {
+    const r = el('rect'); r.setAttribute('class','rh');
+    r.setAttribute('x', node.x + h.fx*node.w - 4);
+    r.setAttribute('y', node.y + h.fy*node.h - 4);
+    r.setAttribute('width',8); r.setAttribute('height',8);
+    r.setAttribute('cursor', h.cx);
+    r.dataset.handle = h.id;
+    r.addEventListener('mousedown', onResizeMD);
+    overlayL.appendChild(r);
+  });
+}
+
+function render() { renderNodes(); renderEdges(); renderOverlay(); syncProps(); }
+
+// ═══════════════════════════════════════════════════════════════
+//  PROPERTIES PANEL SYNC
+// ═══════════════════════════════════════════════════════════════
+function syncProps() {
+  const np = document.getElementById('node-props');
+  const ep = document.getElementById('edge-props');
+  if (S.sel?.type === 'node') {
+    np.style.display = 'flex'; ep.style.display = 'none';
+    const n = getN(S.sel.id); if (!n) return;
+    document.getElementById('p-fill').value   = n.fill        || DN.fill;
+    document.getElementById('p-stroke').value = n.stroke      || DN.stroke;
+    document.getElementById('p-tc').value     = n.textColor   || DN.textColor;
+    document.getElementById('p-fs').value     = n.fontSize    || DN.fontSize;
+    document.getElementById('p-w').value      = Math.round(n.w);
+    document.getElementById('p-h').value      = Math.round(n.h);
+  } else if (S.sel?.type === 'edge') {
+    np.style.display = 'none'; ep.style.display = 'flex';
+    const e = getE(S.sel.id); if (!e) return;
+    document.getElementById('p-ec').value    = e.stroke    || DE.stroke;
+    document.getElementById('p-ew').value    = e.strokeWidth || DE.strokeWidth;
+    document.getElementById('p-edir').value  = e.direction  || DE.direction;
+    document.getElementById('p-estyle').value= e.style      || DE.style;
+    document.getElementById('p-elabel').value= e.label      || '';
+  } else {
+    np.style.display = 'flex'; ep.style.display = 'none';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  EVENTS — NODES
+// ═══════════════════════════════════════════════════════════════
+function onNodeMD(e) {
+  if (e.button !== 0) return;
+  e.stopPropagation();
+  const id = this.dataset.id, node = getN(id);
+
+  if (S.tool === 'connect') {
+    if (!S.connecting) {
+      S.connecting = id;
+      setStatus(`Source: "${node.text||id}" — now click the target node`);
+    } else if (S.connecting !== id) {
+      saveHistory();
+      const edge = { id: uid(), from: S.connecting, to: id, ...DE };
+      S.edges.push(edge);
+      S.connecting = null;
+      sel({ type:'edge', id:edge.id });
+      render();
+      setStatus('Edge created. Click another source to continue.');
+    }
+    return;
+  }
+
+  saveHistory();
+  sel({ type:'node', id });
+  const pt = svgPt(e);
+  S.dragging = { id, sx:pt.x, sy:pt.y, ox:node.x, oy:node.y };
+  render();
+}
+
+function onNodeDbl(e) {
+  e.stopPropagation();
+  startEdit(this.dataset.id);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  EVENTS — EDGES
+// ═══════════════════════════════════════════════════════════════
+function onEdgeMD(e) {
+  if (e.button !== 0) return;
+  e.stopPropagation();
+  sel({ type:'edge', id: this.dataset.id });
+  render();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  EVENTS — RESIZE HANDLES
+// ═══════════════════════════════════════════════════════════════
+function onResizeMD(e) {
+  if (e.button !== 0) return;
+  e.stopPropagation();
+  saveHistory();
+  const node = getN(S.sel.id); if (!node) return;
+  const pt = svgPt(e);
+  S.resizing = { id:node.id, handle:this.dataset.handle, sx:pt.x, sy:pt.y,
+                 ox:node.x, oy:node.y, ow:node.w, oh:node.h };
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  EVENTS — CANVAS
+// ═══════════════════════════════════════════════════════════════
+svg.addEventListener('mousedown', onCanvasMD);
+svg.addEventListener('mousemove', onCanvasMM);
+svg.addEventListener('mouseup',   onCanvasMU);
+svg.addEventListener('dblclick',  onCanvasDbl);
+svg.addEventListener('wheel',     onWheel, {passive:false});
+svg.addEventListener('contextmenu', e => e.preventDefault());
+
+function onCanvasMD(e) {
+  if (e.button === 1 || (e.button === 0 && e.altKey)) {
+    S.panDrag = { sx:e.clientX, sy:e.clientY, opx:S.pan.x, opy:S.pan.y };
+    return;
+  }
+  if (e.button !== 0) return;
+  if (S.tool === 'select') { sel(null); render(); return; }
+  if (S.tool === 'connect') { S.connecting = null; setStatus('Connect: click a source node'); return; }
+  saveHistory();
+  const pt = svgPt(e);
+  const isText = S.tool === 'text';
+  addNode(S.tool, pt.x - (isText?40:DN.w/2), pt.y - (isText?15:DN.h/2));
+}
+
+function onCanvasMM(e) {
+  if (S.panDrag) {
+    S.pan.x = S.panDrag.opx + e.clientX - S.panDrag.sx;
+    S.pan.y = S.panDrag.opy + e.clientY - S.panDrag.sy;
+    applyTransform(); return;
+  }
+  if (S.resizing) {
+    const {id, handle, sx, sy, ox, oy, ow, oh} = S.resizing;
+    const node = getN(id); if (!node) return;
+    const pt = svgPt(e), dx = pt.x-sx, dy = pt.y-sy;
+    if (handle.includes('e')) node.w = Math.max(MIN_W, ow + dx);
+    if (handle.includes('s')) node.h = Math.max(MIN_H, oh + dy);
+    if (handle.includes('w')) { node.x = ox+dx; node.w = Math.max(MIN_W, ow-dx); }
+    if (handle.includes('n')) { node.y = oy+dy; node.h = Math.max(MIN_H, oh-dy); }
+    fastUpdateNode(node);
+    renderOverlay();
+    return;
+  }
+  if (S.dragging) {
+    const {id, sx, sy, ox, oy} = S.dragging;
+    const node = getN(id); if (!node) return;
+    const pt = svgPt(e);
+    node.x = ox + pt.x - sx; node.y = oy + pt.y - sy;
+    fastUpdateNode(node);
+  }
+}
+
+function fastUpdateNode(node) {
+  const g = nodesL.querySelector(`[data-id="${node.id}"]`);
+  if (g) syncNodeEl(g, node);
+  S.edges.filter(e => e.from === node.id || e.to === node.id).forEach(edge => {
+    const eg = edgesL.querySelector(`[data-id="${edge.id}"]`);
+    if (eg) syncEdgeEl(eg, edge);
+  });
+}
+
+function onCanvasMU(e) {
+  if (S.dragging) {
+    const draggedId = S.dragging.id;
+    const start = { x: S.dragging.sx, y: S.dragging.sy };
+    S.dragging = null;
+    // Drag-to-reparent: if released over a different node and the dragged node
+    // has an incoming branch edge, switch the edge's source.
+    const pt = svgPt(e);
+    const moved = Math.hypot(pt.x - start.x, pt.y - start.y);
+    if (moved > 4) {
+      // Geometric hit test — find a node (other than the dragged one) that
+      // contains the drop point. Iterate top-to-bottom of draw order.
+      const cp = svgPt(e);
+      let newParentId = null;
+      for (let i = S.nodes.length - 1; i >= 0; i--) {
+        const n = S.nodes[i];
+        if (n.id === draggedId) continue;
+        if (cp.x >= n.x && cp.x <= n.x + n.w && cp.y >= n.y && cp.y <= n.y + n.h) {
+          newParentId = n.id;
+          break;
+        }
+      }
+      if (newParentId && newParentId !== draggedId) {
+        // Don't reparent to a descendant (would create a cycle)
+        const isDescendant = (id, of) => {
+          const seen = new Set();
+          const stack = [of];
+          while (stack.length) {
+            const cur = stack.pop();
+            if (seen.has(cur)) continue;
+            seen.add(cur);
+            if (cur === id) return true;
+            S.edges.filter(ed => ed.from === cur && ed.style === 'branch')
+              .forEach(ed => stack.push(ed.to));
+          }
+          return false;
+        };
+        const incoming = S.edges.find(ed => ed.to === draggedId && ed.style === 'branch');
+        if (incoming && incoming.from !== newParentId && !isDescendant(newParentId, draggedId)) {
+          incoming.from = newParentId;
+          incoming.stroke = pickBranchColor(newParentId);
+          render();
+          setStatus(`Reparented to "${getN(newParentId)?.text || newParentId}"`);
+        }
+      }
+    }
+  }
+  S.panDrag = null;
+  if (S.resizing) {
+    const node = getN(S.resizing.id);
+    if (node && S.sel?.type === 'node' && S.sel.id === node.id) syncProps();
+    S.resizing = null;
+  }
+}
+
+function onCanvasDbl(e) {
+  if (S.tool !== 'select') return;
+  saveHistory();
+  const pt = svgPt(e);
+  addNode('rounded', pt.x - DN.w/2, pt.y - DN.h/2);
+}
+
+function onWheel(e) {
+  e.preventDefault();
+  const f = e.deltaY > 0 ? 0.9 : 1.1;
+  const r = svg.getBoundingClientRect();
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  S.zoom = Math.max(0.05, Math.min(8, S.zoom * f));
+  S.pan.x = mx - (mx - S.pan.x) * f;
+  S.pan.y = my - (my - S.pan.y) * f;
+  applyTransform();
+}
+
+function applyTransform() {
+  canvasG.setAttribute('transform', `translate(${S.pan.x},${S.pan.y}) scale(${S.zoom})`);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  TEXT EDITING
+// ═══════════════════════════════════════════════════════════════
+let editTA = null, editNodeId = null;
+
+function startEdit(id) {
+  stopEdit();
+  const node = getN(id); if (!node) return;
+  editNodeId = id;
+  const cx = node.x + node.w/2, cy = node.y + node.h/2;
+  const sp  = screenPt(cx, cy);
+  const sw  = node.w * S.zoom, sh = node.h * S.zoom;
+  const ta  = document.createElement('textarea');
+  ta.id = 'edit-overlay';
+  ta.value = node.text || '';
+  ta.style.left   = (sp.x - sw/2) + 'px';
+  ta.style.top    = (sp.y - sh/2) + 'px';
+  ta.style.width  = Math.max(60, sw) + 'px';
+  ta.style.minHeight = Math.max(28, sh) + 'px';
+  ta.style.fontSize  = ((node.fontSize || DN.fontSize) * S.zoom) + 'px';
+  ta.style.color     = node.textColor || DN.textColor;
+  document.body.appendChild(ta);
+  ta.focus(); ta.select();
+  editTA = ta;
+  ta.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape') { ev.stopPropagation(); stopEdit(); return; }
+    if (ev.key === 'Enter' && ev.shiftKey) return; // newline within the text
+    if (ev.key === 'Enter') {
+      ev.preventDefault(); ev.stopPropagation();
+      const id = editNodeId; stopEdit();
+      if (id) addBranch(id, true); // commit + sibling
+      return;
+    }
+    if (ev.key === 'Tab') {
+      ev.preventDefault(); ev.stopPropagation();
+      const id = editNodeId; stopEdit();
+      if (id) addBranch(id, false); // commit + child
+      return;
+    }
+  });
+  ta.addEventListener('blur', () => setTimeout(stopEdit, 120));
+}
+
+function stopEdit() {
+  if (!editTA) return;
+  const node = getN(editNodeId);
+  if (node) {
+    node.text = editTA.value;
+    fastUpdateNode(node);
+    autoSize(node);
+    if (S.sel?.type === 'node' && S.sel.id === node.id) syncProps();
+  }
+  editTA.remove(); editTA = null; editNodeId = null;
+}
+
+function autoSize(node) {
+  if (!node.text || !node.text.trim()) return; // keep existing dimensions when empty
+  const g = nodesL.querySelector(`[data-id="${node.id}"]`);
+  if (!g) return;
+  try {
+    const txt = g.children[1];
+    const bb  = txt.getBBox();
+    const padX = node.shape === 'diamond' ? 50 : 32;
+    const padY = node.shape === 'diamond' ? 40 : 20;
+    node.w = Math.max(node.shape === 'text' ? bb.width+10  : MIN_W+padX, bb.width  + padX);
+    node.h = Math.max(node.shape === 'text' ? bb.height+8  : MIN_H+padY, bb.height + padY);
+    fastUpdateNode(node);
+    renderOverlay();
+  } catch(_){}
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  ACTIONS
+// ═══════════════════════════════════════════════════════════════
+function addNode(shape, x, y) {
+  const isText = shape === 'text';
+  const node = {
+    id:uid(), shape, x, y,
+    w: isText ? 80 : DN.w, h: isText ? 30 : DN.h,
+    text: isText ? 'Text' : 'Node',
+    fill: DN.fill, stroke: DN.stroke, textColor: DN.textColor,
+    strokeWidth: DN.strokeWidth, fontSize: DN.fontSize,
+  };
+  S.nodes.push(node);
+  sel({type:'node', id:node.id});
+  render();
+  setTimeout(() => startEdit(node.id), 40);
+}
+
+const BRANCH_COLORS = ['#5a6fff','#f5a623','#3ecf7e','#d45fff','#ff6b6b','#9b8aff','#4a9eff','#ffd166'];
+
+function pickBranchColor(parentId) {
+  // Inherit from incoming branch if present (sub-branch shares trunk color)
+  const incoming = S.edges.find(e => e.to === parentId && e.style === 'branch');
+  if (incoming) return incoming.stroke;
+  // Otherwise cycle palette based on existing branches from this parent
+  const used = S.edges.filter(e => e.from === parentId && e.style === 'branch').length;
+  return BRANCH_COLORS[used % BRANCH_COLORS.length];
+}
+
+function addBranch(parentId, asSibling) {
+  // asSibling=true: create branch off parent's parent at same level
+  let p = getN(parentId);
+  if (!p) return;
+  if (asSibling) {
+    const incoming = S.edges.find(e => e.to === parentId && e.style === 'branch');
+    if (incoming) p = getN(incoming.from) || p;
+  }
+
+  saveHistory();
+
+  // Decide which side: keep new branch on the same side of root the parent already lives on
+  const parentOfP = S.edges.find(e => e.to === p.id && e.style === 'branch');
+  let onRight = true;
+  if (parentOfP) {
+    const grand = getN(parentOfP.from);
+    if (grand) onRight = (p.x + p.w/2) >= (grand.x + grand.w/2);
+  }
+
+  // Fan vertically: 0, +1, -1, +2, -2, ... so branches spread above and below parent
+  const siblings = S.edges
+    .filter(e => e.from === p.id && e.style === 'branch')
+    .map(e => getN(e.to))
+    .filter(Boolean);
+  const idx = siblings.length;
+  const yStep = 50;
+  const fanOff = idx === 0 ? 0 : (idx % 2 ? Math.ceil(idx/2) : -Math.ceil(idx/2)) * yStep;
+  const startY = p.y + p.h/2 + fanOff;
+
+  const xOff = 200;
+  const child = {
+    id: uid(),
+    shape: 'text',
+    x: onRight ? p.x + p.w + xOff : p.x - xOff - 120,
+    y: startY - 15,
+    w: 120, h: 30,
+    text: '',                       // empty — user types fresh, no need to clear
+    fill: DN.fill, stroke: DN.stroke,
+    textColor: DN.textColor,
+    strokeWidth: 0, fontSize: 14,
+  };
+  S.nodes.push(child);
+
+  const edge = {
+    id: uid(),
+    from: p.id, to: child.id,
+    direction: 'none',
+    style: 'branch',
+    stroke: pickBranchColor(p.id),
+    strokeWidth: 3,
+    label: '',
+  };
+  S.edges.push(edge);
+
+  sel({type:'node', id: child.id});
+  render();
+  setTimeout(() => startEdit(child.id), 40);
+}
+
+function addBranchFromSel() {
+  if (S.sel?.type === 'node') addBranch(S.sel.id, false);
+  else setStatus('Select a node first, then click Branch (or press Tab) to add a child branch.');
+}
+
+function delSelected() {
+  if (!S.sel) return;
+  saveHistory();
+  if (S.sel.type === 'node') {
+    const id = S.sel.id;
+    S.nodes = S.nodes.filter(n => n.id !== id);
+    S.edges = S.edges.filter(e => e.from !== id && e.to !== id);
+  } else {
+    S.edges = S.edges.filter(e => e.id !== S.sel.id);
+  }
+  sel(null); render();
+}
+
+function sel(s) { S.sel = s; }
+
+function setTool(t) {
+  S.tool = t; S.connecting = null;
+  document.querySelectorAll('.btn[id^=btn-]').forEach(b => b.classList.remove('active'));
+  const b = document.getElementById('btn-'+t); if (b) b.classList.add('active');
+  svg.style.cursor = {select:'default', connect:'crosshair'}[t] || 'copy';
+  const msgs = {
+    select:  'Click to select · Drag to move · Double-click to edit · Tab = child branch · Enter = sibling branch · Dbl-click canvas = new node',
+    rect:    'Click canvas to place a rectangle',
+    rounded: 'Click canvas to place a rounded rectangle',
+    ellipse: 'Click canvas to place an ellipse',
+    diamond: 'Click canvas to place a diamond',
+    text:    'Click canvas to place a text label',
+    connect: 'Click a source node, then click the target node',
+  };
+  setStatus(msgs[t] || '');
+}
+
+function setProp(key, val) {
+  if (!S.sel || S.sel.type !== 'node') return;
+  const n = getN(S.sel.id); if (!n) return;
+  n[key] = val; fastUpdateNode(n);
+}
+function setPropWH(key, val) {
+  if (!S.sel || S.sel.type !== 'node') return;
+  const n = getN(S.sel.id); if (!n) return;
+  n[key] = Math.max(key==='w'?MIN_W:MIN_H, val);
+  fastUpdateNode(n); renderOverlay();
+}
+function setEdgeProp(key, val) {
+  if (!S.sel || S.sel.type !== 'edge') return;
+  const e = getE(S.sel.id); if (!e) return;
+  e[key] = val;
+  const eg = edgesL.querySelector(`[data-id="${e.id}"]`);
+  if (eg) syncEdgeEl(eg, e);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  HISTORY
+// ═══════════════════════════════════════════════════════════════
+function snapshot() { return JSON.stringify({nodes:S.nodes, edges:S.edges, nid:S.nid}); }
+function saveHistory() {
+  history.push(snapshot());
+  if (history.length > 60) history.shift();
+  redoStack.length = 0;
+}
+function restoreSnapshot(snap) {
+  const d = JSON.parse(snap);
+  S.nodes = d.nodes; S.edges = d.edges; S.nid = d.nid;
+  sel(null); nodesL.innerHTML=''; edgesL.innerHTML=''; overlayL.innerHTML='';
+  svgDefs.querySelectorAll('marker').forEach(m=>m.remove());
+  markers.clear();
+  render();
+}
+function undo() {
+  if (!history.length) return;
+  redoStack.push(snapshot());
+  restoreSnapshot(history.pop());
+}
+function redo() {
+  if (!redoStack.length) return;
+  history.push(snapshot());
+  restoreSnapshot(redoStack.pop());
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  EXPORT / IMPORT
+// ═══════════════════════════════════════════════════════════════
+function contentBBox() {
+  if (!S.nodes.length) return {x:0,y:0,w:800,h:600};
+  let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+  S.nodes.forEach(n => { x0=Math.min(x0,n.x);y0=Math.min(y0,n.y);x1=Math.max(x1,n.x+n.w);y1=Math.max(y1,n.y+n.h); });
+  return {x:x0,y:y0,w:x1-x0,h:y1-y0};
+}
+
+function exportSVG() {
+  const prevSel = S.sel; sel(null); render();
+  const bb = contentBBox(), pad = 50;
+  const clone = svg.cloneNode(true);
+  clone.setAttribute('viewBox', `${bb.x-pad} ${bb.y-pad} ${bb.w+2*pad} ${bb.h+2*pad}`);
+  clone.setAttribute('width',  bb.w+2*pad);
+  clone.setAttribute('height', bb.h+2*pad);
+  clone.setAttribute('xmlns',  'http://www.w3.org/2000/svg');
+  clone.querySelector('#canvas-g').setAttribute('transform', '');
+  clone.querySelector('#grid-bg')?.remove();
+  const styleEl = document.createElementNS(ns,'style');
+  styleEl.textContent = 'text{font-family:system-ui,-apple-system,Arial,sans-serif}';
+  clone.querySelector('#svg-defs').prepend(styleEl);
+  const str = '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(clone);
+  dl(new Blob([str],{type:'image/svg+xml'}), 'mindmap.svg');
+  sel(prevSel); render();
+}
+
+function exportJSON() {
+  dl(new Blob([JSON.stringify({nodes:S.nodes,edges:S.edges,nid:S.nid},null,2)],
+     {type:'application/json'}), 'mindmap.json');
+}
+
+function importJSON() { document.getElementById('file-in').click(); }
+
+function loadFile(input) {
+  const f = input.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    try {
+      const d = JSON.parse(ev.target.result);
+      S.nodes = d.nodes||[]; S.edges = d.edges||[]; S.nid = d.nid||S.nid;
+      sel(null); nodesL.innerHTML=''; edgesL.innerHTML=''; overlayL.innerHTML='';
+      svgDefs.querySelectorAll('marker').forEach(m=>m.remove()); markers.clear();
+      history.length=0; redoStack.length=0;
+      render();
+    } catch(_) { alert('Could not parse JSON file.'); }
+  };
+  r.readAsText(f);
+  input.value = '';
+}
+
+function clearAll() {
+  if (!confirm('Clear the entire canvas?')) return;
+  saveHistory();
+  S.nodes=[]; S.edges=[]; sel(null);
+  nodesL.innerHTML=''; edgesL.innerHTML=''; overlayL.innerHTML='';
+  svgDefs.querySelectorAll('marker').forEach(m=>m.remove()); markers.clear();
+  render();
+}
+
+function dl(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  KEYBOARD
+// ═══════════════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if (editTA) return;
+  if (e.key==='Tab' && S.sel?.type==='node') { e.preventDefault(); addBranch(S.sel.id, false); return; }
+  if (e.key==='Enter' && S.sel?.type==='node') { e.preventDefault(); addBranch(S.sel.id, true); return; }
+  if ((e.key==='Delete'||e.key==='Backspace') && S.sel) { e.preventDefault(); delSelected(); return; }
+  if (e.key==='Escape') { S.connecting=null; sel(null); setTool('select'); render(); return; }
+  if (e.ctrlKey||e.metaKey) {
+    if (e.key==='z') { e.preventDefault(); undo(); return; }
+    if (e.key==='y'||(e.key==='z'&&e.shiftKey)) { e.preventDefault(); redo(); return; }
+    if (e.key==='d' && S.sel?.type==='node') {
+      e.preventDefault();
+      const src = getN(S.sel.id); if (!src) return;
+      saveHistory();
+      const dup = {...src, id:uid(), x:src.x+24, y:src.y+24};
+      S.nodes.push(dup); sel({type:'node',id:dup.id}); render(); return;
+    }
+  }
+  if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+    const map = {v:'select',r:'rect',u:'rounded',e:'ellipse',d:'diamond',t:'text',c:'connect'};
+    if (map[e.key.toLowerCase()]) setTool(map[e.key.toLowerCase()]);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  SAMPLE CONTENT
+// ═══════════════════════════════════════════════════════════════
+function addSample() {
+  const mk = (shape, x, y, w, h, text, fill, stroke, fontSize) => ({
+    id:uid(), shape, x, y, w, h, text, fill, stroke, textColor:'#fff',
+    strokeWidth:2, fontSize: fontSize||14
+  });
+  const n0 = mk('rounded',  330, 220, 180, 64, 'Main Idea',  '#1e2d5a','#5a6fff',17);
+  const n1 = mk('rounded',   60, 110, 150, 52, 'Topic A',    '#2b1f5e','#9b8aff');
+  const n2 = mk('rounded',  580, 110, 150, 52, 'Topic B',    '#1a3d2b','#3ecf7e');
+  const n3 = mk('ellipse',   60, 340, 150, 55, 'Subtopic',   '#3d1f4a','#d45fff');
+  const n4 = mk('diamond',  580, 320, 150, 75, 'Decision',   '#3d2800','#f5a623');
+  const n5 = mk('rounded',  220,  90, 130, 46, 'Detail A-1', '#1f2f4a','#4a9eff',13);
+  const n6 = mk('text',     345, 355,  80, 28, 'Note',       '#12121f','#5a6fff',12);
+  S.nodes.push(n0,n1,n2,n3,n4,n5,n6);
+  const ed = (from,to,dir,color,label,style) =>
+    ({id:uid(), from, to, direction:dir||'forward', stroke:color||'#5a6fff', strokeWidth:2,
+      style:style||'straight', label:label||''});
+  S.edges.push(
+    ed(n0.id,n1.id,'forward','#9b8aff'),
+    ed(n0.id,n2.id,'forward','#3ecf7e'),
+    ed(n0.id,n3.id,'both',   '#d45fff','linked','curved'),
+    ed(n2.id,n4.id,'forward','#f5a623','leads to'),
+    ed(n1.id,n5.id,'forward','#4a9eff'),
+  );
+  S.pan = {x:0, y:0}; S.zoom = 1;
+  applyTransform();
+  render();
+}
+
+// ── Init ──────────────────────────────────────────────────────
+setTool('select');
+addSample();
+</script>
+</body>
+</html>

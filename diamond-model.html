@@ -1,0 +1,1841 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diamond Model Renderer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0d0f14;
+            --surface: #14171f;
+            --surface-2: #1c2030;
+            --surface-3: #252a3d;
+            --border: rgba(255, 255, 255, 0.07);
+            --border-strong: rgba(255, 255, 255, 0.14);
+            --text: #e8eaf0;
+            --text-muted: #9298a8;
+            --text-dim: #5c6275;
+            --adversary: #ef6b6b;
+            --adversary-bg: rgba(239, 107, 107, 0.10);
+            --adversary-border: rgba(239, 107, 107, 0.35);
+            --capability: #b794f6;
+            --capability-bg: rgba(183, 148, 246, 0.10);
+            --capability-border: rgba(183, 148, 246, 0.35);
+            --infrastructure: #4fd1c5;
+            --infrastructure-bg: rgba(79, 209, 197, 0.10);
+            --infrastructure-border: rgba(79, 209, 197, 0.35);
+            --victim: #63b3ed;
+            --victim-bg: rgba(99, 179, 237, 0.10);
+            --victim-border: rgba(99, 179, 237, 0.35);
+            --amber: #f6ad55;
+            --success: #68d391;
+            --success-bg: rgba(104, 211, 145, 0.12);
+            --danger: #fc8181;
+            --danger-bg: rgba(252, 129, 129, 0.12);
+            --warning-bg: rgba(246, 173, 85, 0.12);
+            --info-bg: rgba(99, 179, 237, 0.12);
+            --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            --radius-sm: 4px;
+            --radius-md: 6px;
+            --radius-lg: 10px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html,
+        body {
+            height: 100%;
+        }
+
+        body {
+            background: var(--bg);
+            background-image:
+                radial-gradient(circle at 15% 5%, rgba(79, 209, 197, 0.04), transparent 40%),
+                radial-gradient(circle at 90% 90%, rgba(183, 148, 246, 0.04), transparent 40%);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 14px;
+            line-height: 1.55;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .app {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 4px 4px 16px;
+            border-bottom: 1px solid var(--border);
+            flex-wrap: wrap;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .brand-mark {
+            width: 28px;
+            height: 28px;
+        }
+
+        .brand-mark svg {
+            display: block;
+        }
+
+        .brand-text h1 {
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+
+        .brand-text .sub {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            font-family: var(--font-sans);
+            font-size: 13px;
+            font-weight: 500;
+            padding: 8px 14px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-strong);
+            background: var(--surface-2);
+            color: var(--text);
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s, transform 0.1s;
+        }
+
+        button:hover:not(:disabled) {
+            background: var(--surface-3);
+            border-color: rgba(255, 255, 255, 0.22);
+        }
+
+        button:active:not(:disabled) {
+            transform: translateY(1px);
+        }
+
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        button.primary {
+            background: var(--text);
+            color: var(--bg);
+            border-color: var(--text);
+        }
+
+        button.primary:hover {
+            background: #fff;
+        }
+
+        .main {
+            display: grid;
+            grid-template-columns: minmax(320px, 1fr) minmax(420px, 1.4fr);
+            gap: 16px;
+        }
+
+        @media (max-width: 980px) {
+            .main {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .pane {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .pane-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.015);
+        }
+
+        .pane-title {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        .status {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--text-dim);
+        }
+
+        .status.ok {
+            color: var(--success);
+        }
+
+        .status.ok::before {
+            background: var(--success);
+            box-shadow: 0 0 8px var(--success);
+        }
+
+        .status.err {
+            color: var(--danger);
+        }
+
+        .status.err::before {
+            background: var(--danger);
+        }
+
+        .status.warn {
+            color: var(--amber);
+        }
+
+        .status.warn::before {
+            background: var(--amber);
+        }
+
+        .editor {
+            flex: 1;
+            display: flex;
+            min-height: 480px;
+        }
+
+        #jsonInput {
+            flex: 1;
+            width: 100%;
+            background: transparent;
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 12.5px;
+            line-height: 1.65;
+            padding: 16px;
+            border: none;
+            resize: none;
+            outline: none;
+            tab-size: 2;
+        }
+
+        #jsonInput::selection {
+            background: rgba(99, 179, 237, 0.25);
+        }
+
+        .error-bar {
+            padding: 10px 16px;
+            background: var(--danger-bg);
+            border-top: 1px solid rgba(252, 129, 129, 0.25);
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            color: var(--danger);
+            display: none;
+            white-space: pre-wrap;
+        }
+
+        .error-bar.show {
+            display: block;
+        }
+
+        .viz {
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .event-banner {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            background: var(--surface-2);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border);
+            flex-wrap: wrap;
+        }
+
+        .event-banner .label {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+        }
+
+        .event-banner .id {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: var(--text);
+            letter-spacing: 0.02em;
+        }
+
+        .event-banner .group {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .event-banner .group strong {
+            color: var(--amber);
+            font-weight: 500;
+            font-family: var(--font-mono);
+            letter-spacing: 0.02em;
+        }
+
+        .pager {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            background: var(--surface-3);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 2px;
+        }
+
+        .pager-btn {
+            background: transparent;
+            border: none;
+            padding: 4px 10px;
+            font-size: 14px;
+            font-family: var(--font-mono);
+            color: var(--text);
+            border-radius: 999px;
+            cursor: pointer;
+            min-width: 28px;
+            line-height: 1;
+        }
+
+        .pager-btn:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .pager-btn:disabled {
+            color: var(--text-dim);
+            cursor: not-allowed;
+        }
+
+        .pager-text {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-muted);
+            padding: 0 8px;
+            letter-spacing: 0.05em;
+            min-width: 60px;
+            text-align: center;
+        }
+
+        .pager-text strong {
+            color: var(--text);
+            font-weight: 500;
+        }
+
+        .kill-chain {
+            display: flex;
+            align-items: stretch;
+            gap: 2px;
+            padding: 8px;
+            background: var(--surface-2);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border);
+        }
+
+        .kc-stage {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            padding: 8px 4px;
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            position: relative;
+            transition: background 0.15s, border-color 0.15s;
+            min-width: 0;
+        }
+
+        .kc-stage:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .kc-stage.has-event {
+            background: rgba(255, 255, 255, 0.025);
+        }
+
+        .kc-stage.has-event:hover {
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .kc-stage.current {
+            background: var(--surface-3);
+            border-color: var(--border-strong);
+        }
+
+        .kc-stage.empty {
+            cursor: default;
+            opacity: 0.4;
+        }
+
+        .kc-stage.empty:hover {
+            background: transparent;
+        }
+
+        .kc-label {
+            font-family: var(--font-mono);
+            font-size: 9.5px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            overflow: hidden;
+            max-width: 100%;
+        }
+
+        .kc-stage.has-event .kc-label {
+            color: var(--text-muted);
+        }
+
+        .kc-stage.current .kc-label {
+            color: var(--text);
+            font-weight: 500;
+        }
+
+        .kc-marker {
+            display: flex;
+            gap: 2px;
+            height: 6px;
+            align-items: center;
+        }
+
+        .kc-dot {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: var(--text-dim);
+        }
+
+        .kc-dot.success {
+            background: var(--danger);
+        }
+
+        .kc-dot.failure {
+            background: var(--success);
+        }
+
+        .kc-dot.unknown {
+            background: var(--text-muted);
+        }
+
+        .kc-dot.current {
+            width: 6px;
+            height: 6px;
+            box-shadow: 0 0 6px currentColor;
+        }
+
+        .diamond-wrap {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            padding: 8px 0;
+        }
+
+        #diamondSvg {
+            width: 100%;
+            max-width: 560px;
+            height: auto;
+        }
+
+        #diamondSvg .axis {
+            stroke: var(--border-strong);
+            stroke-width: 0.5;
+            stroke-dasharray: 3 4;
+        }
+
+        #diamondSvg .edge {
+            stroke: var(--border-strong);
+            stroke-width: 1;
+            fill: none;
+        }
+
+        #diamondSvg .axis-label {
+            font-family: var(--font-mono);
+            font-size: 9px;
+            fill: var(--text-dim);
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        #diamondSvg .vertex {
+            cursor: pointer;
+        }
+
+        #diamondSvg .vertex .v-bg {
+            transition: fill 0.2s, stroke 0.2s, stroke-width 0.2s;
+        }
+
+        #diamondSvg .vertex:hover .v-bg {
+            stroke-width: 2;
+            filter: brightness(1.15);
+        }
+
+        #diamondSvg .vertex.selected .v-bg {
+            stroke-width: 2.5;
+            filter: brightness(1.25);
+        }
+
+        #diamondSvg .vertex.selected .v-glow {
+            opacity: 1;
+        }
+
+        #diamondSvg .v-glow {
+            opacity: 0;
+            transition: opacity 0.25s;
+            pointer-events: none;
+        }
+
+        #diamondSvg .v-title {
+            font-family: var(--font-sans);
+            font-size: 13px;
+            font-weight: 600;
+            pointer-events: none;
+            text-anchor: middle;
+        }
+
+        #diamondSvg .v-summary {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            pointer-events: none;
+            text-anchor: middle;
+        }
+
+        #diamondSvg .v-conf {
+            font-family: var(--font-mono);
+            font-size: 9.5px;
+            fill: var(--text-dim);
+            pointer-events: none;
+            text-anchor: middle;
+            letter-spacing: 0.06em;
+        }
+
+        .meta-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            border-radius: 999px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            font-size: 11.5px;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            letter-spacing: 0.02em;
+        }
+
+        .chip strong {
+            color: var(--text);
+            font-weight: 500;
+        }
+
+        .chip .key {
+            font-size: 9.5px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+        }
+
+        .chip.success {
+            background: var(--success-bg);
+            border-color: rgba(104, 211, 145, 0.3);
+            color: var(--success);
+        }
+
+        .chip.success strong {
+            color: var(--success);
+        }
+
+        .chip.danger {
+            background: var(--danger-bg);
+            border-color: rgba(252, 129, 129, 0.3);
+            color: var(--danger);
+        }
+
+        .chip.danger strong {
+            color: var(--danger);
+        }
+
+        .chip.warning {
+            background: var(--warning-bg);
+            border-color: rgba(246, 173, 85, 0.3);
+            color: var(--amber);
+        }
+
+        .chip.warning strong {
+            color: var(--amber);
+        }
+
+        .chip.info {
+            background: var(--info-bg);
+            border-color: rgba(99, 179, 237, 0.3);
+            color: var(--victim);
+        }
+
+        .chip.info strong {
+            color: var(--victim);
+        }
+
+        .detail {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            min-height: 200px;
+        }
+
+        .detail-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .detail-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-dim);
+        }
+
+        .detail-title {
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+
+        .detail-conf {
+            margin-left: auto;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .conf-bar {
+            width: 60px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .conf-bar>div {
+            height: 100%;
+            background: var(--text);
+            border-radius: 2px;
+        }
+
+        .detail-body {
+            padding: 18px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 18px;
+        }
+
+        .field-group h4 {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .field {
+            display: grid;
+            grid-template-columns: 100px 1fr;
+            gap: 10px;
+            padding: 5px 0;
+            font-size: 13px;
+            align-items: baseline;
+        }
+
+        .field .k {
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+        }
+
+        .field .v {
+            color: var(--text);
+            word-break: break-all;
+            font-family: var(--font-mono);
+            font-size: 12px;
+        }
+
+        .field .v.sans {
+            font-family: var(--font-sans);
+            font-size: 13px;
+        }
+
+        .field .v.muted {
+            color: var(--text-muted);
+        }
+
+        .tag-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 4px;
+        }
+
+        .tag {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            padding: 2px 7px;
+            border-radius: var(--radius-sm);
+            background: var(--surface-3);
+            color: var(--text);
+            letter-spacing: 0.03em;
+        }
+
+        .tag.adversary {
+            background: var(--adversary-bg);
+            color: var(--adversary);
+            border: 1px solid var(--adversary-border);
+        }
+
+        .tag.capability {
+            background: var(--capability-bg);
+            color: var(--capability);
+            border: 1px solid var(--capability-border);
+        }
+
+        .tag.infrastructure {
+            background: var(--infrastructure-bg);
+            color: var(--infrastructure);
+            border: 1px solid var(--infrastructure-border);
+        }
+
+        .tag.victim {
+            background: var(--victim-bg);
+            color: var(--victim);
+            border: 1px solid var(--victim-border);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 48px 24px;
+            color: var(--text-dim);
+            font-size: 13px;
+        }
+
+        .empty-state .hint {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            margin-top: 8px;
+            letter-spacing: 0.05em;
+        }
+
+        .asset {
+            padding: 10px 12px;
+            background: var(--surface-2);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border);
+            margin-bottom: 6px;
+            font-size: 12px;
+        }
+
+        .asset .asset-type {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            letter-spacing: 0.08em;
+            margin-bottom: 2px;
+        }
+
+        .asset .asset-id {
+            font-family: var(--font-mono);
+            color: var(--text);
+        }
+
+        .asset .asset-desc {
+            color: var(--text-muted);
+            margin-top: 2px;
+            font-size: 11.5px;
+        }
+
+        .refs {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .ref {
+            padding: 8px 12px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            font-size: 12px;
+        }
+
+        .ref .src {
+            color: var(--amber);
+            font-family: var(--font-mono);
+            font-size: 11px;
+        }
+
+        .ref a {
+            color: var(--victim);
+            text-decoration: none;
+            word-break: break-all;
+        }
+
+        .ref a:hover {
+            text-decoration: underline;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 16px 0 4px;
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-dim);
+            letter-spacing: 0.05em;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            background: var(--surface-3);
+            border: 1px solid var(--border-strong);
+            color: var(--text);
+            padding: 10px 16px;
+            border-radius: var(--radius-md);
+            font-family: var(--font-mono);
+            font-size: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s, transform 0.2s;
+            z-index: 100;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        ::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--surface-3);
+            border-radius: 5px;
+            border: 2px solid var(--bg);
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--border-strong);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+
+        <header class="header">
+            <div class="brand">
+                <div class="brand-mark">
+                    <svg viewBox="0 0 28 28" fill="none">
+                        <path d="M14 2 L26 14 L14 26 L2 14 Z" stroke="#e8eaf0" stroke-width="1.5" />
+                        <circle cx="14" cy="2" r="2" fill="#ef6b6b" />
+                        <circle cx="26" cy="14" r="2" fill="#b794f6" />
+                        <circle cx="14" cy="26" r="2" fill="#63b3ed" />
+                        <circle cx="2" cy="14" r="2" fill="#4fd1c5" />
+                    </svg>
+                </div>
+                <div class="brand-text">
+                    <h1>Diamond Model Renderer</h1>
+                    <div class="sub">cti · event visualization</div>
+                </div>
+            </div>
+            <div class="actions">
+                <button id="loadExample">Load example</button>
+                <button id="formatBtn">Format JSON</button>
+                <button id="exportSvg">Export SVG</button>
+                <button id="clearBtn">Clear</button>
+                <button id="renderBtn" class="primary">Render →</button>
+            </div>
+        </header>
+
+        <div class="main">
+            <section class="pane">
+                <div class="pane-header">
+                    <span class="pane-title">Event JSON · single object or array</span>
+                    <span class="status" id="status">awaiting input</span>
+                </div>
+                <div class="editor">
+                    <textarea id="jsonInput" spellcheck="false"
+                        placeholder="Paste a Diamond Model event (or array of events) here, or click Load example."></textarea>
+                </div>
+                <div class="error-bar" id="errorBar"></div>
+            </section>
+
+            <section class="pane viz">
+                <div class="event-banner" id="eventBanner" style="display:none;">
+                    <span class="label">event</span>
+                    <span class="id" id="eventId">—</span>
+                    <span class="group" id="eventGroup"></span>
+                    <div class="pager" id="pager">
+                        <button class="pager-btn" id="prevEvent" title="Previous event (PageUp)">‹</button>
+                        <span class="pager-text" id="pagerText">1 / 1</span>
+                        <button class="pager-btn" id="nextEvent" title="Next event (PageDown)">›</button>
+                    </div>
+                </div>
+
+                <div class="kill-chain" id="killChain" style="display:none;"></div>
+
+                <div class="diamond-wrap">
+                    <svg id="diamondSvg" viewBox="0 0 600 600" role="img" aria-label="Diamond Model visualization">
+                        <defs>
+                            <filter id="glowAdv" x="-50%" y="-50%" width="200%" height="200%">
+                                <feGaussianBlur stdDeviation="6" />
+                            </filter>
+                        </defs>
+                        <line class="axis" x1="80" y1="300" x2="520" y2="300" />
+                        <line class="axis" x1="300" y1="80" x2="300" y2="520" />
+                        <text class="axis-label" x="300" y="50" text-anchor="middle">social-political axis</text>
+                        <text class="axis-label" x="560" y="304" text-anchor="start">tech axis</text>
+                        <polygon class="edge" points="300,90 510,300 300,510 90,300" />
+                        <rect x="262" y="288" width="76" height="24" rx="4" fill="rgba(255,255,255,0.04)"
+                            stroke="rgba(255,255,255,0.1)" stroke-width="0.5" />
+                        <text x="300" y="304" text-anchor="middle" fill="#9298a8"
+                            font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="0.05em">EVENT</text>
+
+                        <g class="vertex" data-vertex="adversary" transform="translate(300,90)">
+                            <ellipse class="v-glow" cx="0" cy="0" rx="100" ry="50" fill="#ef6b6b"
+                                filter="url(#glowAdv)" />
+                            <rect class="v-bg" x="-90" y="-32" width="180" height="64" rx="10"
+                                fill="rgba(239,107,107,0.10)" stroke="#ef6b6b" stroke-width="1" />
+                            <text class="v-title" x="0" y="-8" fill="#ef6b6b">Adversary</text>
+                            <text class="v-summary" id="advSummary" x="0" y="10" fill="#e8eaf0">—</text>
+                            <text class="v-conf" id="advConf" x="0" y="26">conf —</text>
+                        </g>
+
+                        <g class="vertex" data-vertex="capability" transform="translate(510,300)">
+                            <ellipse class="v-glow" cx="0" cy="0" rx="100" ry="50" fill="#b794f6"
+                                filter="url(#glowAdv)" />
+                            <rect class="v-bg" x="-90" y="-32" width="180" height="64" rx="10"
+                                fill="rgba(183,148,246,0.10)" stroke="#b794f6" stroke-width="1" />
+                            <text class="v-title" x="0" y="-8" fill="#b794f6">Capability</text>
+                            <text class="v-summary" id="capSummary" x="0" y="10" fill="#e8eaf0">—</text>
+                            <text class="v-conf" id="capConf" x="0" y="26">conf —</text>
+                        </g>
+
+                        <g class="vertex" data-vertex="victim" transform="translate(300,510)">
+                            <ellipse class="v-glow" cx="0" cy="0" rx="100" ry="50" fill="#63b3ed"
+                                filter="url(#glowAdv)" />
+                            <rect class="v-bg" x="-90" y="-32" width="180" height="64" rx="10"
+                                fill="rgba(99,179,237,0.10)" stroke="#63b3ed" stroke-width="1" />
+                            <text class="v-title" x="0" y="-8" fill="#63b3ed">Victim</text>
+                            <text class="v-summary" id="vicSummary" x="0" y="10" fill="#e8eaf0">—</text>
+                            <text class="v-conf" id="vicConf" x="0" y="26">conf —</text>
+                        </g>
+
+                        <g class="vertex" data-vertex="infrastructure" transform="translate(90,300)">
+                            <ellipse class="v-glow" cx="0" cy="0" rx="100" ry="50" fill="#4fd1c5"
+                                filter="url(#glowAdv)" />
+                            <rect class="v-bg" x="-90" y="-32" width="180" height="64" rx="10"
+                                fill="rgba(79,209,197,0.10)" stroke="#4fd1c5" stroke-width="1" />
+                            <text class="v-title" x="0" y="-8" fill="#4fd1c5">Infrastructure</text>
+                            <text class="v-summary" id="infSummary" x="0" y="10" fill="#e8eaf0">—</text>
+                            <text class="v-conf" id="infConf" x="0" y="26">conf —</text>
+                        </g>
+                    </svg>
+                </div>
+
+                <div class="meta-row" id="metaRow"></div>
+            </section>
+        </div>
+
+        <section class="detail" id="detail">
+            <div class="empty-state">
+                Click a vertex to inspect its properties
+                <div class="hint">↑ adversary · → capability · ↓ victim · ← infrastructure · PgUp/PgDn cycle events
+                </div>
+            </div>
+        </section>
+
+        <div class="footer">
+            Diamond Model of Intrusion Analysis · Caltagirone, Pendergast &amp; Betz (2013)
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // 6-event chain telling a coherent attack story
+        const EXAMPLE = [
+            {
+                "event_id": "1a2b3c4d-0001-4000-8000-000000000001",
+                "timestamp": { "start": "2025-11-08T09:14:00Z", "end": "2025-11-12T17:30:00Z" },
+                "phase": "reconnaissance",
+                "result": "success",
+                "direction": "ingress",
+                "methodology": "OSINT - LinkedIn profile harvesting",
+                "confidence": 0.6,
+                "tlp": "TLP:AMBER",
+                "activity_group": "CLUSTER-EXAMPLE",
+                "adversary": {
+                    "operator": { "name": "MIDNIGHT-DRIFTER", "aliases": ["UNC-EXAMPLE"], "motivation": "espionage", "sophistication": "advanced" },
+                    "confidence": 0.5
+                },
+                "capability": {
+                    "name": "OSINT toolkit", "type": "tool",
+                    "description": "LinkedIn scraper, public records aggregation, GitHub commit history mining.",
+                    "confidence": 0.7
+                },
+                "infrastructure": {
+                    "type": "third_party",
+                    "domains": ["linkedin.com", "github.com"],
+                    "description": "Legitimate platforms used for passive reconnaissance.",
+                    "confidence": 0.9
+                },
+                "victim": {
+                    "organization": { "name": "Northwind Energy Co.", "sector": "Energy", "country": "DE", "size": "large" },
+                    "assets": [
+                        { "type": "user_account", "identifier": "j.weber@northwind-energy.example", "description": "Identified as energy sector analyst with vendor access" }
+                    ],
+                    "confidence": 0.8
+                },
+                "related_events": ["1a2b3c4d-0002-4000-8000-000000000002"],
+                "analyst_notes": "Targeting profile suggests interest in vendor relationships and procurement workflows."
+            },
+            {
+                "event_id": "1a2b3c4d-0002-4000-8000-000000000002",
+                "timestamp": { "start": "2025-11-14T03:14:18Z", "end": "2025-11-14T03:14:20Z" },
+                "phase": "delivery",
+                "result": "success",
+                "direction": "ingress",
+                "methodology": "spear-phishing with malicious ISO attachment",
+                "resources": ["bulletproof hosting", "phishing kit"],
+                "confidence": 0.85,
+                "tlp": "TLP:AMBER",
+                "activity_group": "CLUSTER-EXAMPLE",
+                "adversary": {
+                    "operator": { "name": "MIDNIGHT-DRIFTER", "motivation": "espionage", "sophistication": "advanced" },
+                    "confidence": 0.7
+                },
+                "capability": {
+                    "name": "Phishing email + ISO lure", "type": "technique",
+                    "description": "Email impersonating internal IT update; ISO contains a .lnk file that loads a VBA payload.",
+                    "mitre_attack": ["T1566.001", "T1204.002"],
+                    "confidence": 0.9
+                },
+                "infrastructure": {
+                    "type": "adversary_controlled",
+                    "domains": ["hr-noreply.example.com"],
+                    "ip_addresses": ["198.51.100.17"],
+                    "description": "Sender domain registered 11 days prior; SPF passes via owned MTA.",
+                    "confidence": 0.85
+                },
+                "victim": {
+                    "persona": "Energy sector analyst",
+                    "organization": { "name": "Northwind Energy Co.", "sector": "Energy", "country": "DE", "size": "large" },
+                    "assets": [
+                        { "type": "email_account", "identifier": "j.weber@northwind-energy.example", "description": "Mailbox received phishing email at 03:14 UTC" }
+                    ],
+                    "confidence": 0.95
+                },
+                "related_events": ["1a2b3c4d-0001-4000-8000-000000000001", "1a2b3c4d-0003-4000-8000-000000000003"]
+            },
+            {
+                "event_id": "1a2b3c4d-0003-4000-8000-000000000003",
+                "timestamp": { "start": "2025-11-14T03:21:42Z", "end": "2025-11-14T03:21:45Z" },
+                "phase": "exploitation",
+                "result": "success",
+                "direction": "ingress",
+                "methodology": "user-assisted execution of malicious LNK",
+                "confidence": 0.9,
+                "tlp": "TLP:AMBER",
+                "activity_group": "CLUSTER-EXAMPLE",
+                "adversary": {
+                    "operator": { "name": "MIDNIGHT-DRIFTER", "motivation": "espionage", "sophistication": "advanced" },
+                    "confidence": 0.75
+                },
+                "capability": {
+                    "name": "VBA dropper", "type": "exploit",
+                    "version": "0.4",
+                    "description": "LNK invokes powershell with base64-encoded payload that retrieves stage 2 over HTTPS.",
+                    "mitre_attack": ["T1204.002", "T1059.001", "T1027"],
+                    "sigma_rules": ["sigma-7b1d4e8f-suspicious-iso-lnk"],
+                    "confidence": 0.9
+                },
+                "infrastructure": {
+                    "type": "adversary_controlled",
+                    "domains": ["cdn-update-svc.example.com"],
+                    "urls": ["https://cdn-update-svc.example.com/api/v2/stage2.bin"],
+                    "ip_addresses": ["203.0.113.42"],
+                    "asn": "AS64500",
+                    "geolocation": { "country_code": "NL", "country": "Netherlands", "city": "Amsterdam" },
+                    "description": "Stage-2 payload host. TLS cert issued by Let's Encrypt 14 days before campaign.",
+                    "confidence": 0.9
+                },
+                "victim": {
+                    "organization": { "name": "Northwind Energy Co.", "sector": "Energy", "country": "DE", "size": "large" },
+                    "assets": [
+                        { "type": "endpoint", "identifier": "WS-FINANCE-042", "description": "Workstation, Windows 11 Enterprise" },
+                        { "type": "user_account", "identifier": "j.weber@northwind-energy.example", "description": "User clicked through SmartScreen warning" }
+                    ],
+                    "confidence": 0.95
+                },
+                "related_events": ["1a2b3c4d-0002-4000-8000-000000000002", "1a2b3c4d-0004-4000-8000-000000000004"]
+            },
+            {
+                "event_id": "1a2b3c4d-0004-4000-8000-000000000004",
+                "timestamp": { "start": "2025-11-14T03:22:01Z", "end": "2025-11-14T03:22:18Z" },
+                "phase": "installation",
+                "result": "success",
+                "direction": "ingress",
+                "methodology": "in-memory loader writes persistence key",
+                "confidence": 0.85,
+                "tlp": "TLP:AMBER",
+                "activity_group": "CLUSTER-EXAMPLE",
+                "adversary": {
+                    "operator": { "name": "MIDNIGHT-DRIFTER", "motivation": "espionage", "sophistication": "advanced" },
+                    "confidence": 0.75
+                },
+                "capability": {
+                    "name": "DRIFTBEACON", "type": "malware", "version": "2.1.4",
+                    "hash": {
+                        "sha256": "a3f1b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0",
+                        "md5": "5d41402abc4b2a76b9719d911017c592"
+                    },
+                    "description": "Reflective DLL loaded by stage-2; persists via scheduled task masquerading as 'EdgeUpdateCheck'.",
+                    "mitre_attack": ["T1547.001", "T1053.005", "T1140"],
+                    "sigma_rules": ["sigma-9f3e2c1a-driftbeacon-persist"],
+                    "confidence": 0.9
+                },
+                "infrastructure": {
+                    "type": "victim_controlled",
+                    "description": "Persistence written to victim's local Task Scheduler. No new external infrastructure introduced.",
+                    "confidence": 0.85
+                },
+                "victim": {
+                    "organization": { "name": "Northwind Energy Co.", "sector": "Energy", "country": "DE", "size": "large" },
+                    "assets": [
+                        { "type": "endpoint", "identifier": "WS-FINANCE-042", "description": "Persistence key created under HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" }
+                    ],
+                    "confidence": 0.95
+                },
+                "related_events": ["1a2b3c4d-0003-4000-8000-000000000003", "1a2b3c4d-0005-4000-8000-000000000005"]
+            },
+            {
+                "event_id": "1a2b3c4d-0005-4000-8000-000000000005",
+                "timestamp": { "start": "2025-11-14T03:22:18Z", "end": "2025-11-14T04:05:42Z" },
+                "phase": "command_and_control",
+                "result": "success",
+                "direction": "egress",
+                "methodology": "HTTPS beacon with domain fronting",
+                "resources": ["bulletproof hosting", "code-signing certificate"],
+                "confidence": 0.9,
+                "tlp": "TLP:AMBER",
+                "activity_group": "CLUSTER-EXAMPLE",
+                "adversary": {
+                    "operator": { "name": "MIDNIGHT-DRIFTER", "motivation": "espionage", "sophistication": "advanced" },
+                    "customer": { "name": "Unknown state sponsor", "motivation": "espionage", "sophistication": "expert" },
+                    "confidence": 0.7
+                },
+                "capability": {
+                    "name": "DRIFTBEACON", "type": "malware", "version": "2.1.4",
+                    "hash": { "sha256": "a3f1b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0" },
+                    "mitre_attack": ["T1071.001", "T1573.002", "T1090.004"],
+                    "sigma_rules": ["sigma-9f3e2c1a-driftbeacon-c2"],
+                    "description": "Beacon with hardcoded RC4 + ChaCha20 layered scheme; jitter 30%, sleep 90s.",
+                    "confidence": 0.9
+                },
+                "infrastructure": {
+                    "type": "adversary_controlled",
+                    "ip_addresses": ["203.0.113.42", "198.51.100.17"],
+                    "domains": ["cdn-update-svc.example.com", "telemetry-api.example.net"],
+                    "urls": ["https://cdn-update-svc.example.com/api/v2/heartbeat"],
+                    "asn": "AS64500",
+                    "geolocation": { "country_code": "NL", "country": "Netherlands", "city": "Amsterdam" },
+                    "description": "Two-tier C2: front domains rotate weekly, back-end on bulletproof hosting in EU.",
+                    "confidence": 0.9
+                },
+                "victim": {
+                    "persona": "Energy sector analyst",
+                    "organization": { "name": "Northwind Energy Co.", "sector": "Energy", "country": "DE", "size": "large" },
+                    "assets": [
+                        { "type": "endpoint", "identifier": "WS-FINANCE-042", "description": "Beacon callback observed within 8 minutes of execution" }
+                    ],
+                    "confidence": 0.95
+                },
+                "related_events": ["1a2b3c4d-0004-4000-8000-000000000004", "1a2b3c4d-0006-4000-8000-000000000006"],
+                "references": [
+                    { "source": "Internal IR ticket", "description": "INC-2025-1142" }
+                ],
+                "analyst_notes": "Beacon callback observed within 8 minutes of execution. Lateral movement attempts blocked by EDR rule SIGMA-INT-0042."
+            },
+            {
+                "event_id": "1a2b3c4d-0006-4000-8000-000000000006",
+                "timestamp": { "start": "2025-11-14T03:54:11Z", "end": "2025-11-14T04:02:36Z" },
+                "phase": "actions_on_objectives",
+                "result": "failure",
+                "direction": "egress",
+                "methodology": "staged archive + DNS exfil attempt",
+                "confidence": 0.8,
+                "tlp": "TLP:AMBER",
+                "activity_group": "CLUSTER-EXAMPLE",
+                "adversary": {
+                    "operator": { "name": "MIDNIGHT-DRIFTER", "motivation": "espionage", "sophistication": "advanced" },
+                    "confidence": 0.7
+                },
+                "capability": {
+                    "name": "Custom 7z + DNS tunnel", "type": "tool",
+                    "description": "Targeted contracts directory; archived to %TEMP% as .dat, attempted exfil via DNS TXT records.",
+                    "mitre_attack": ["T1560.001", "T1048.003", "T1041"],
+                    "sigma_rules": ["sigma-2c8e1f6a-dns-exfil"],
+                    "confidence": 0.85
+                },
+                "infrastructure": {
+                    "type": "adversary_controlled",
+                    "domains": ["dns-resolver.example.org"],
+                    "ip_addresses": ["203.0.113.99"],
+                    "description": "DNS tunnel server; queries blocked by egress DNS policy.",
+                    "confidence": 0.9
+                },
+                "victim": {
+                    "organization": { "name": "Northwind Energy Co.", "sector": "Energy", "country": "DE", "size": "large" },
+                    "assets": [
+                        { "type": "data_store", "identifier": "//fileserver01/contracts/2025", "description": "Contracts share, accessed during dwell" },
+                        { "type": "endpoint", "identifier": "WS-FINANCE-042", "description": "Staging host" }
+                    ],
+                    "confidence": 0.9
+                },
+                "related_events": ["1a2b3c4d-0005-4000-8000-000000000005"],
+                "analyst_notes": "Exfil attempt blocked at egress DNS. Contracts archive recovered intact from %TEMP%."
+            }
+        ];
+
+        const VERTEX_META = {
+            adversary: { color: '#ef6b6b', label: 'Adversary', summaryEl: 'advSummary', confEl: 'advConf' },
+            capability: { color: '#b794f6', label: 'Capability', summaryEl: 'capSummary', confEl: 'capConf' },
+            infrastructure: { color: '#4fd1c5', label: 'Infrastructure', summaryEl: 'infSummary', confEl: 'infConf' },
+            victim: { color: '#63b3ed', label: 'Victim', summaryEl: 'vicSummary', confEl: 'vicConf' }
+        };
+
+        const KILL_CHAIN_PHASES = [
+            { id: 'reconnaissance', label: 'recon' },
+            { id: 'weaponization', label: 'weap' },
+            { id: 'delivery', label: 'deliv' },
+            { id: 'exploitation', label: 'exploit' },
+            { id: 'installation', label: 'install' },
+            { id: 'command_and_control', label: 'c2' },
+            { id: 'actions_on_objectives', label: 'actions' },
+            { id: 'unknown', label: 'unknown' }
+        ];
+
+        let currentEvents = [];
+        let currentIndex = 0;
+        let selectedVertex = 'adversary';
+
+        const $ = sel => document.querySelector(sel);
+        const $$ = sel => document.querySelectorAll(sel);
+
+        function setStatus(text, kind) {
+            const el = $('#status');
+            el.textContent = text;
+            el.className = 'status' + (kind ? ' ' + kind : '');
+        }
+
+        function showError(msg) {
+            const el = $('#errorBar');
+            if (msg) { el.textContent = msg; el.classList.add('show'); }
+            else { el.classList.remove('show'); }
+        }
+
+        function toast(msg) {
+            const el = $('#toast');
+            el.textContent = msg;
+            el.classList.add('show');
+            clearTimeout(toast._t);
+            toast._t = setTimeout(() => el.classList.remove('show'), 1800);
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+        function truncate(s, n) { return s && s.length > n ? s.slice(0, n - 1) + '…' : s; }
+
+        function summarizeVertex(kind, v) {
+            if (!v) return '—';
+            switch (kind) {
+                case 'adversary': return v.operator?.name || v.customer?.name || 'Unattributed';
+                case 'capability': return v.name || (v.type ? v.type : 'Unknown');
+                case 'infrastructure': {
+                    const counts = [];
+                    if (v.domains?.length) counts.push(v.domains.length + ' dom');
+                    if (v.ip_addresses?.length) counts.push(v.ip_addresses.length + ' ip');
+                    if (v.urls?.length) counts.push(v.urls.length + ' url');
+                    return counts.length ? counts.join(' · ') : (v.type || 'Unknown');
+                }
+                case 'victim': return v.organization?.name || v.persona || 'Unknown target';
+            }
+        }
+
+        function renderDiamond(ev) {
+            for (const [kind, meta] of Object.entries(VERTEX_META)) {
+                const v = ev[kind];
+                document.getElementById(meta.summaryEl).textContent = truncate(summarizeVertex(kind, v) || '—', 22);
+                const conf = v?.confidence;
+                document.getElementById(meta.confEl).textContent = conf != null ? `conf ${conf.toFixed(2)}` : 'conf —';
+            }
+        }
+
+        function renderMeta(ev) {
+            const row = $('#metaRow');
+            row.innerHTML = '';
+            $('#eventBanner').style.display = 'flex';
+            $('#eventId').textContent = ev.event_id || '—';
+            $('#eventGroup').innerHTML = ev.activity_group ? `group <strong>${escapeHtml(ev.activity_group)}</strong>` : '';
+
+            const chip = (key, value, kind) => {
+                if (value == null || value === '') return;
+                const el = document.createElement('span');
+                el.className = 'chip' + (kind ? ' ' + kind : '');
+                el.innerHTML = `<span class="key">${key}</span><strong>${escapeHtml(value)}</strong>`;
+                row.appendChild(el);
+            };
+
+            if (ev.phase) {
+                const map = { command_and_control: 'warning', exploitation: 'danger', actions_on_objectives: 'danger' };
+                chip('phase', ev.phase.replace(/_/g, ' '), map[ev.phase] || 'info');
+            }
+            if (ev.result) chip('result', ev.result, ev.result === 'success' ? 'danger' : ev.result === 'failure' ? 'success' : '');
+            if (ev.direction) chip('direction', ev.direction);
+            if (ev.methodology) chip('method', ev.methodology);
+            if (ev.timestamp?.start) {
+                const s = ev.timestamp.start;
+                const e = ev.timestamp.end;
+                chip('time', e ? `${s} → ${e}` : s);
+            }
+            if (ev.tlp) {
+                const k = ev.tlp.includes('RED') ? 'danger' : ev.tlp.includes('AMBER') ? 'warning' : ev.tlp.includes('GREEN') ? 'success' : 'info';
+                chip('tlp', ev.tlp, k);
+            }
+            if (ev.confidence != null) chip('overall conf', ev.confidence.toFixed(2));
+            if (ev.resources?.length) chip('resources', String(ev.resources.length));
+        }
+
+        function renderKillChain() {
+            const kc = $('#killChain');
+            if (currentEvents.length <= 1) {
+                kc.style.display = 'none';
+                return;
+            }
+            kc.style.display = 'flex';
+
+            const byPhase = {};
+            for (const p of KILL_CHAIN_PHASES) byPhase[p.id] = [];
+            currentEvents.forEach((ev, i) => {
+                const ph = ev.phase || 'unknown';
+                if (byPhase[ph]) byPhase[ph].push(i);
+                else byPhase.unknown.push(i);
+            });
+
+            const currentPhase = currentEvents[currentIndex]?.phase || 'unknown';
+
+            kc.innerHTML = KILL_CHAIN_PHASES.map(p => {
+                const indices = byPhase[p.id];
+                const hasEvent = indices.length > 0;
+                const isCurrent = p.id === currentPhase && hasEvent;
+                const cls = ['kc-stage'];
+                if (hasEvent) cls.push('has-event'); else cls.push('empty');
+                if (isCurrent) cls.push('current');
+
+                const dots = indices.map(i => {
+                    const ev = currentEvents[i];
+                    const dotCls = ['kc-dot'];
+                    if (ev.result === 'success') dotCls.push('success');
+                    else if (ev.result === 'failure') dotCls.push('failure');
+                    else dotCls.push('unknown');
+                    if (i === currentIndex) dotCls.push('current');
+                    return `<div class="${dotCls.join(' ')}" title="event ${i + 1}: ${escapeHtml(ev.result || '?')}"></div>`;
+                }).join('');
+
+                const dataIdx = hasEvent ? indices[0] : '';
+                return `
+      <div class="${cls.join(' ')}" data-target-index="${dataIdx}" data-phase="${p.id}">
+        <div class="kc-label">${p.label}</div>
+        <div class="kc-marker">${dots || '<div class="kc-dot" style="opacity:0.2"></div>'}</div>
+      </div>
+    `;
+            }).join('');
+
+            kc.querySelectorAll('.kc-stage').forEach(stage => {
+                if (stage.classList.contains('empty')) return;
+                stage.addEventListener('click', () => {
+                    const idx = parseInt(stage.dataset.targetIndex, 10);
+                    if (!isNaN(idx)) goToEvent(idx);
+                });
+            });
+        }
+
+        function renderPager() {
+            const pager = $('#pager');
+            if (currentEvents.length <= 1) {
+                pager.style.display = 'none';
+                return;
+            }
+            pager.style.display = 'flex';
+            $('#pagerText').innerHTML = `<strong>${currentIndex + 1}</strong> / <strong>${currentEvents.length}</strong>`;
+            $('#prevEvent').disabled = currentIndex === 0;
+            $('#nextEvent').disabled = currentIndex === currentEvents.length - 1;
+        }
+
+        function goToEvent(index) {
+            if (index < 0 || index >= currentEvents.length) return;
+            currentIndex = index;
+            loadCurrentEvent();
+        }
+
+        function loadCurrentEvent() {
+            const ev = currentEvents[currentIndex];
+            if (!ev) return;
+            renderDiamond(ev);
+            renderMeta(ev);
+            renderPager();
+            renderKillChain();
+            selectVertex(selectedVertex);
+        }
+
+        function field(key, value, opts = {}) {
+            if (value == null || value === '' || (Array.isArray(value) && !value.length)) return '';
+            const cls = ['v'];
+            if (opts.sans) cls.push('sans');
+            if (opts.muted) cls.push('muted');
+            return `<div class="field"><span class="k">${key}</span><span class="${cls.join(' ')}">${value}</span></div>`;
+        }
+
+        function tagList(arr, kind) {
+            if (!arr || !arr.length) return '';
+            return `<div class="tag-list">${arr.map(t => `<span class="tag ${kind || ''}">${t}</span>`).join('')}</div>`;
+        }
+
+        function renderDetail(kind) {
+            const ev = currentEvents[currentIndex];
+            if (!ev) return;
+            const v = ev[kind];
+            const meta = VERTEX_META[kind];
+            const detail = $('#detail');
+
+            if (!v) {
+                detail.innerHTML = `<div class="empty-state">No ${kind} data in this event.</div>`;
+                return;
+            }
+
+            const conf = v.confidence;
+            const confPct = conf != null ? Math.round(conf * 100) : null;
+            const confHtml = conf != null
+                ? `<div class="detail-conf">${conf.toFixed(2)}<div class="conf-bar"><div style="width:${confPct}%;background:${meta.color}"></div></div></div>`
+                : '';
+
+            let body = '';
+
+            if (kind === 'adversary') {
+                const renderActor = (label, a) => {
+                    if (!a) return '';
+                    return `<div class="field-group">
+        <h4>${label}</h4>
+        ${field('name', escapeHtml(a.name || 'Unattributed'), { sans: true })}
+        ${a.aliases?.length ? `<div class="field"><span class="k">aliases</span><span class="v">${tagList(a.aliases.map(escapeHtml), 'adversary')}</span></div>` : ''}
+        ${field('nation', escapeHtml(a.nation_state))}
+        ${field('motivation', escapeHtml(a.motivation), { sans: true })}
+        ${field('sophistication', escapeHtml(a.sophistication), { sans: true })}
+      </div>`;
+                };
+                body = renderActor('Operator', v.operator) + renderActor('Customer', v.customer);
+                if (!body) body = '<div class="field-group"><h4>Adversary</h4><div class="field"><span class="v muted sans">No actor data provided</span></div></div>';
+            }
+
+            else if (kind === 'capability') {
+                const hashes = v.hash || {};
+                body = `
+      <div class="field-group">
+        <h4>Identity</h4>
+        ${field('name', escapeHtml(v.name), { sans: true })}
+        ${field('type', escapeHtml(v.type), { sans: true })}
+        ${field('version', escapeHtml(v.version))}
+        ${v.description ? `<div class="field"><span class="k">notes</span><span class="v sans">${escapeHtml(v.description)}</span></div>` : ''}
+      </div>
+      <div class="field-group">
+        <h4>Hashes</h4>
+        ${field('sha256', hashes.sha256 ? escapeHtml(hashes.sha256) : null)}
+        ${field('sha1', hashes.sha1 ? escapeHtml(hashes.sha1) : null)}
+        ${field('md5', hashes.md5 ? escapeHtml(hashes.md5) : null)}
+        ${!hashes.sha256 && !hashes.sha1 && !hashes.md5 ? '<div class="field"><span class="v muted sans">No hashes provided</span></div>' : ''}
+      </div>
+      <div class="field-group">
+        <h4>Detection</h4>
+        ${v.mitre_attack?.length ? `<div class="field"><span class="k">att&amp;ck</span><span class="v">${tagList(v.mitre_attack.map(escapeHtml), 'capability')}</span></div>` : ''}
+        ${v.sigma_rules?.length ? `<div class="field"><span class="k">sigma</span><span class="v">${tagList(v.sigma_rules.map(escapeHtml), 'capability')}</span></div>` : ''}
+        ${!v.mitre_attack?.length && !v.sigma_rules?.length ? '<div class="field"><span class="v muted sans">No detections mapped</span></div>' : ''}
+      </div>
+    `;
+            }
+
+            else if (kind === 'infrastructure') {
+                const geo = v.geolocation || {};
+                const geoStr = [geo.city, geo.country, geo.country_code].filter(Boolean).join(', ');
+                body = `
+      <div class="field-group">
+        <h4>Type</h4>
+        ${field('control', escapeHtml(v.type?.replace(/_/g, ' ')), { sans: true })}
+        ${field('asn', escapeHtml(v.asn))}
+        ${geoStr ? field('geo', escapeHtml(geoStr), { sans: true }) : ''}
+        ${v.description ? `<div class="field"><span class="k">notes</span><span class="v sans">${escapeHtml(v.description)}</span></div>` : ''}
+      </div>
+      <div class="field-group">
+        <h4>Network</h4>
+        ${v.domains?.length ? `<div class="field"><span class="k">domains</span><span class="v">${tagList(v.domains.map(escapeHtml), 'infrastructure')}</span></div>` : ''}
+        ${v.ip_addresses?.length ? `<div class="field"><span class="k">ips</span><span class="v">${tagList(v.ip_addresses.map(escapeHtml), 'infrastructure')}</span></div>` : ''}
+        ${v.urls?.length ? `<div class="field"><span class="k">urls</span><span class="v">${v.urls.map(u => `<div>${escapeHtml(u)}</div>`).join('')}</span></div>` : ''}
+        ${!v.domains?.length && !v.ip_addresses?.length && !v.urls?.length ? '<div class="field"><span class="v muted sans">No network indicators</span></div>' : ''}
+      </div>
+      ${v.certificates?.length ? `
+        <div class="field-group">
+          <h4>Certificates</h4>
+          ${v.certificates.map(c => `<div class="field"><span class="k">sha256</span><span class="v">${escapeHtml(c)}</span></div>`).join('')}
+        </div>` : ''}
+    `;
+            }
+
+            else if (kind === 'victim') {
+                const org = v.organization || {};
+                body = `
+      <div class="field-group">
+        <h4>Identity</h4>
+        ${field('persona', escapeHtml(v.persona), { sans: true })}
+        ${field('name', escapeHtml(org.name), { sans: true })}
+        ${field('sector', escapeHtml(org.sector), { sans: true })}
+        ${field('country', escapeHtml(org.country))}
+        ${field('size', escapeHtml(org.size), { sans: true })}
+      </div>
+      ${v.assets?.length ? `
+        <div class="field-group" style="grid-column: 1 / -1;">
+          <h4>Targeted assets · ${v.assets.length}</h4>
+          ${v.assets.map(a => `
+            <div class="asset">
+              <div class="asset-type">${escapeHtml(a.type?.replace(/_/g, ' ') || 'asset')}</div>
+              <div class="asset-id">${escapeHtml(a.identifier || '—')}</div>
+              ${a.description ? `<div class="asset-desc">${escapeHtml(a.description)}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      ` : '<div class="field-group"><h4>Assets</h4><div class="field"><span class="v muted sans">None listed</span></div></div>'}
+    `;
+            }
+
+            let extras = '';
+            if (kind === 'adversary' && (ev.analyst_notes || ev.references?.length)) {
+                if (ev.analyst_notes) {
+                    extras += `<div class="field-group" style="grid-column: 1 / -1;">
+        <h4>Analyst notes</h4>
+        <div class="field"><span class="v sans">${escapeHtml(ev.analyst_notes)}</span></div>
+      </div>`;
+                }
+                if (ev.references?.length) {
+                    extras += `<div class="field-group" style="grid-column: 1 / -1;">
+        <h4>References</h4>
+        <div class="refs">${ev.references.map(r => `
+          <div class="ref">
+            <span class="src">${escapeHtml(r.source)}</span>
+            ${r.url ? ` · <a href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${escapeHtml(r.url)}</a>` : ''}
+            ${r.description ? `<div>${escapeHtml(r.description)}</div>` : ''}
+          </div>`).join('')}
+        </div>
+      </div>`;
+                }
+            }
+
+            detail.innerHTML = `
+    <div class="detail-header">
+      <span class="detail-dot" style="background:${meta.color}"></span>
+      <span class="detail-title">${meta.label}</span>
+      ${confHtml}
+    </div>
+    <div class="detail-body">${body}${extras}</div>
+  `;
+        }
+
+        function selectVertex(kind) {
+            selectedVertex = kind;
+            $$('#diamondSvg .vertex').forEach(g => g.classList.toggle('selected', g.dataset.vertex === kind));
+            renderDetail(kind);
+        }
+
+        function validateEvent(ev, idx) {
+            const required = ['adversary', 'capability', 'infrastructure', 'victim'];
+            const missing = required.filter(k => !ev[k] || typeof ev[k] !== 'object');
+            if (missing.length) {
+                return `Event ${idx + 1}: missing required vertex object(s): ${missing.join(', ')}`;
+            }
+            return null;
+        }
+
+        function tryRender() {
+            const text = $('#jsonInput').value.trim();
+            if (!text) {
+                setStatus('awaiting input');
+                showError(null);
+                return;
+            }
+            let parsed;
+            try {
+                parsed = JSON.parse(text);
+            } catch (e) {
+                setStatus('invalid json', 'err');
+                showError('Parse error · ' + e.message);
+                return;
+            }
+
+            const events = Array.isArray(parsed) ? parsed : [parsed];
+            if (!events.length) {
+                setStatus('empty array', 'err');
+                showError('Input array contains no events.');
+                return;
+            }
+
+            const errors = events.map(validateEvent).filter(Boolean);
+            if (errors.length === events.length) {
+                setStatus('schema error', 'err');
+                showError(errors.join('\n'));
+                return;
+            }
+            if (errors.length) {
+                setStatus(`${events.length - errors.length}/${events.length} valid`, 'warn');
+                showError('Some events failed validation:\n' + errors.join('\n'));
+            } else {
+                const label = events.length === 1 ? 'rendered · 1 event' : `rendered · ${events.length} events`;
+                setStatus(label, 'ok');
+                showError(null);
+            }
+
+            // Sort by timestamp.start when available so cycling follows the timeline
+            const ordered = events.slice().sort((a, b) => {
+                const sa = a?.timestamp?.start || '';
+                const sb = b?.timestamp?.start || '';
+                return sa.localeCompare(sb);
+            });
+
+            currentEvents = ordered;
+            currentIndex = 0;
+            loadCurrentEvent();
+        }
+
+        function exportSvg() {
+            if (!currentEvents.length) {
+                toast('Nothing to export — render an event first');
+                return;
+            }
+            const ev = currentEvents[currentIndex];
+            const live = $('#diamondSvg');
+            const clone = live.cloneNode(true);
+
+            clone.setAttribute('width', '600');
+            clone.setAttribute('height', '600');
+            clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+            clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+            clone.removeAttribute('role');
+            clone.removeAttribute('aria-label');
+
+            // Add solid background; transparent SVGs render unpredictably across viewers
+            const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            bg.setAttribute('x', '0'); bg.setAttribute('y', '0');
+            bg.setAttribute('width', '600'); bg.setAttribute('height', '600');
+            bg.setAttribute('fill', '#0d0f14');
+            clone.insertBefore(bg, clone.firstChild);
+
+            // Inline the styles needed; the document CSS doesn't travel with the export
+            const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+            styleEl.textContent = `
+    .axis { stroke: rgba(255,255,255,0.14); stroke-width: 0.5; stroke-dasharray: 3 4; }
+    .edge { stroke: rgba(255,255,255,0.14); stroke-width: 1; fill: none; }
+    .axis-label { font-family: 'IBM Plex Sans', sans-serif; font-size: 9px; fill: #5c6275; letter-spacing: 0.1em; text-transform: uppercase; }
+    .v-title   { font-family: 'IBM Plex Sans', sans-serif; font-size: 13px; font-weight: 600; }
+    .v-summary { font-family: 'IBM Plex Sans', sans-serif; font-size: 10.5px; fill: #e8eaf0; }
+    .v-conf    { font-family: 'IBM Plex Sans', sans-serif; font-size: 9.5px; fill: #5c6275; letter-spacing: 0.06em; }
+  `;
+            clone.insertBefore(styleEl, clone.firstChild);
+
+            // Strip glow filters (don't render reliably outside the page)
+            clone.querySelectorAll('.v-glow').forEach(el => el.remove());
+            const filterDef = clone.querySelector('defs filter');
+            if (filterDef) filterDef.remove();
+
+            // Add a footer caption with event identity
+            const caption = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            caption.setAttribute('x', '300');
+            caption.setAttribute('y', '578');
+            caption.setAttribute('text-anchor', 'middle');
+            caption.setAttribute('font-family', "'IBM Plex Sans', sans-serif");
+            caption.setAttribute('font-size', '10');
+            caption.setAttribute('fill', '#5c6275');
+            caption.setAttribute('letter-spacing', '0.05em');
+            const phaseStr = ev.phase ? ev.phase.replace(/_/g, ' ') : '—';
+            const groupStr = ev.activity_group || '';
+            caption.textContent = `${groupStr ? groupStr + ' · ' : ''}${phaseStr} · ${ev.event_id || ''}`;
+            clone.appendChild(caption);
+
+            const xml = new XMLSerializer().serializeToString(clone);
+            const full = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml;
+            const blob = new Blob([full], { type: 'image/svg+xml;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            const stub = (ev.event_id || 'event').slice(0, 8);
+            const phaseStub = ev.phase ? ev.phase.replace(/_/g, '-') : 'event';
+            a.href = url;
+            a.download = `diamond-${phaseStub}-${stub}.svg`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+            toast(`Exported ${a.download}`);
+        }
+
+        $$('#diamondSvg .vertex').forEach(g => {
+            g.addEventListener('click', () => selectVertex(g.dataset.vertex));
+        });
+
+        $('#loadExample').addEventListener('click', () => {
+            $('#jsonInput').value = JSON.stringify(EXAMPLE, null, 2);
+            tryRender();
+        });
+
+        $('#formatBtn').addEventListener('click', () => {
+            try {
+                const v = JSON.parse($('#jsonInput').value);
+                $('#jsonInput').value = JSON.stringify(v, null, 2);
+                showError(null);
+                setStatus('formatted', 'ok');
+            } catch (e) {
+                showError('Cannot format · ' + e.message);
+                setStatus('invalid json', 'err');
+            }
+        });
+
+        $('#exportSvg').addEventListener('click', exportSvg);
+
+        $('#clearBtn').addEventListener('click', () => {
+            $('#jsonInput').value = '';
+            setStatus('awaiting input');
+            showError(null);
+            currentEvents = [];
+            currentIndex = 0;
+            $('#eventBanner').style.display = 'none';
+            $('#killChain').style.display = 'none';
+            $('#metaRow').innerHTML = '';
+            $('#detail').innerHTML = `
+    <div class="empty-state">
+      Click a vertex to inspect its properties
+      <div class="hint">↑ adversary · → capability · ↓ victim · ← infrastructure · PgUp/PgDn cycle events</div>
+    </div>`;
+            for (const meta of Object.values(VERTEX_META)) {
+                document.getElementById(meta.summaryEl).textContent = '—';
+                document.getElementById(meta.confEl).textContent = 'conf —';
+            }
+            $$('#diamondSvg .vertex').forEach(g => g.classList.remove('selected'));
+        });
+
+        $('#renderBtn').addEventListener('click', tryRender);
+        $('#prevEvent').addEventListener('click', () => goToEvent(currentIndex - 1));
+        $('#nextEvent').addEventListener('click', () => goToEvent(currentIndex + 1));
+
+        document.addEventListener('keydown', e => {
+            if (document.activeElement === $('#jsonInput')) return;
+            const vertexMap = { ArrowUp: 'adversary', ArrowRight: 'capability', ArrowDown: 'victim', ArrowLeft: 'infrastructure' };
+            if (vertexMap[e.key] && currentEvents.length) {
+                e.preventDefault();
+                selectVertex(vertexMap[e.key]);
+                return;
+            }
+            if (e.key === 'PageUp' && currentEvents.length > 1) { e.preventDefault(); goToEvent(currentIndex - 1); return; }
+            if (e.key === 'PageDown' && currentEvents.length > 1) { e.preventDefault(); goToEvent(currentIndex + 1); return; }
+            if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); exportSvg(); return; }
+        });
+
+        $('#jsonInput').value = JSON.stringify(EXAMPLE, null, 2);
+        tryRender();
+    </script>
+</body>
+
+</html>
