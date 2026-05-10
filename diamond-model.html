@@ -902,6 +902,145 @@
         ::-webkit-scrollbar-thumb:hover {
             background: var(--border-strong);
         }
+
+        /* ── edit-mode toolbar ─────────────────────── */
+        .edit-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            padding: 0 2px 10px;
+        }
+
+        .edit-toggle {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            padding: 6px 12px;
+            border-radius: var(--radius-sm);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s, color 0.15s;
+        }
+
+        .edit-toggle:hover {
+            background: var(--surface-2);
+            border-color: var(--border-strong);
+            color: var(--text-muted);
+        }
+
+        .edit-toggle.active {
+            background: var(--surface-3);
+            border-color: var(--border-strong);
+            color: var(--text);
+        }
+
+        /* ── edit form ─────────────────────────────── */
+        .detail-edit-body {
+            padding: 16px 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 22px;
+            overflow-y: auto;
+            max-height: 520px;
+        }
+
+        .edit-section-label {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            margin-bottom: 10px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: 108px 1fr;
+            row-gap: 6px;
+            column-gap: 12px;
+            align-items: center;
+        }
+
+        .form-label {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-muted);
+            letter-spacing: 0.02em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .form-label.top { align-self: start; padding-top: 7px; }
+
+        .form-input,
+        .form-select,
+        .form-textarea {
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 12px;
+            padding: 5px 8px;
+            border-radius: var(--radius-sm);
+            outline: none;
+            width: 100%;
+            line-height: 1.45;
+            transition: border-color 0.15s;
+        }
+
+        .form-input:focus,
+        .form-select:focus,
+        .form-textarea:focus { border-color: var(--border-strong); }
+
+        .form-select option { background: var(--surface-2); }
+
+        .form-textarea {
+            resize: vertical;
+            min-height: 52px;
+        }
+
+        .form-range-wrap {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        input[type="range"].form-range {
+            -webkit-appearance: none;
+            appearance: none;
+            flex: 1;
+            height: 3px;
+            background: var(--surface-3);
+            border-radius: 2px;
+            cursor: pointer;
+            border: none;
+            padding: 0;
+            outline: none;
+        }
+
+        input[type="range"].form-range::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 13px;
+            height: 13px;
+            border-radius: 50%;
+            background: var(--text);
+            cursor: pointer;
+        }
+
+        .form-range-val {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-muted);
+            min-width: 30px;
+            text-align: right;
+        }
     </style>
 </head>
 
@@ -928,6 +1067,7 @@
                 <button id="loadExample">Load example</button>
                 <button id="formatBtn">Format JSON</button>
                 <button id="exportSvg">Export SVG</button>
+                <button id="addEventBtn">+ Add event</button>
                 <button id="clearBtn">Clear</button>
                 <button id="renderBtn" class="primary">Render →</button>
             </div>
@@ -1021,6 +1161,10 @@
 
                 <div class="meta-row" id="metaRow"></div>
             </section>
+        </div>
+
+        <div id="editToolbar" class="edit-toolbar" style="display:none;">
+            <button class="edit-toggle" id="editModeBtn">Edit mode</button>
         </div>
 
         <section class="detail" id="detail">
@@ -1305,6 +1449,8 @@
         let currentEvents = [];
         let currentIndex = 0;
         let selectedVertex = 'adversary';
+        let editMode = false;
+        let autoRenderTimer = null;
 
         const $ = sel => document.querySelector(sel);
         const $$ = sel => document.querySelectorAll(sel);
@@ -1474,6 +1620,7 @@
             renderPager();
             renderKillChain();
             selectVertex(selectedVertex);
+            $('#editToolbar').style.display = '';
         }
 
         function field(key, value, opts = {}) {
@@ -1489,7 +1636,7 @@
             return `<div class="tag-list">${arr.map(t => `<span class="tag ${kind || ''}">${t}</span>`).join('')}</div>`;
         }
 
-        function renderDetail(kind) {
+        function renderDetailView(kind) {
             const ev = currentEvents[currentIndex];
             if (!ev) return;
             const v = ev[kind];
@@ -1801,6 +1948,10 @@
             showError(null);
             currentEvents = [];
             currentIndex = 0;
+            editMode = false;
+            $('#editToolbar').style.display = 'none';
+            $('#editModeBtn').classList.remove('active');
+            $('#editModeBtn').textContent = 'Edit mode';
             $('#eventBanner').style.display = 'none';
             $('#killChain').style.display = 'none';
             $('#metaRow').innerHTML = '';
@@ -1832,6 +1983,262 @@
             if (e.key === 'PageDown' && currentEvents.length > 1) { e.preventDefault(); goToEvent(currentIndex + 1); return; }
             if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); exportSvg(); return; }
         });
+
+        // ── Debounced auto-render on JSON textarea ──────────
+        $('#jsonInput').addEventListener('input', () => {
+            clearTimeout(autoRenderTimer);
+            autoRenderTimer = setTimeout(tryRender, 600);
+        });
+
+        // ── Edit mode ────────────────────────────────────────
+        function serializeEventsToTextarea() {
+            const out = currentEvents.length === 1 ? currentEvents[0] : currentEvents;
+            $('#jsonInput').value = JSON.stringify(out, null, 2);
+        }
+
+        function toggleEditMode() {
+            editMode = !editMode;
+            const btn = $('#editModeBtn');
+            btn.classList.toggle('active', editMode);
+            btn.textContent = editMode ? 'View mode' : 'Edit mode';
+            renderDetail(selectedVertex);
+        }
+
+        function renderDetail(kind) {
+            if (editMode && currentEvents.length) {
+                renderDetailEdit(kind);
+            } else {
+                renderDetailView(kind);
+            }
+        }
+
+        function newBlankEvent() {
+            return {
+                event_id: 'event-' + Math.random().toString(36).slice(2, 10),
+                timestamp: { start: new Date().toISOString() },
+                phase: 'unknown',
+                result: 'unknown',
+                confidence: 0.5,
+                adversary: { confidence: 0.5 },
+                capability: { confidence: 0.5 },
+                infrastructure: { confidence: 0.5 },
+                victim: { confidence: 0.5 }
+            };
+        }
+
+        function addNewEvent() {
+            currentEvents.push(newBlankEvent());
+            currentIndex = currentEvents.length - 1;
+            serializeEventsToTextarea();
+            setStatus(`${currentEvents.length} event${currentEvents.length !== 1 ? 's' : ''}`, 'ok');
+            showError(null);
+            editMode = true;
+            loadCurrentEvent();
+            $('#editModeBtn').classList.add('active');
+            $('#editModeBtn').textContent = 'View mode';
+            toast('New event added · fill in the form');
+        }
+
+        // ── Graphical edit form ──────────────────────────────
+        function renderDetailEdit(kind) {
+            const ev = currentEvents[currentIndex];
+            if (!ev) return;
+            const v = ev[kind] || {};
+            const meta = VERTEX_META[kind];
+            const detail = $('#detail');
+
+            const inp = (id, val, ph) =>
+                `<input class="form-input" id="${id}" type="text" value="${escapeHtml(String(val ?? ''))}"${ph ? ` placeholder="${ph}"` : ''}>`;
+
+            const sel = (id, opts, val) =>
+                `<select class="form-select" id="${id}">${opts.map(([v, l]) =>
+                    `<option value="${v}"${val === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`;
+
+            const ta = (id, val, rows) =>
+                `<textarea class="form-textarea" id="${id}" rows="${rows || 2}">${escapeHtml(String(val ?? ''))}</textarea>`;
+
+            const rng = (id, val) => {
+                const n = (val != null ? +val : 0.5).toFixed(2);
+                return `<div class="form-range-wrap">
+                    <input class="form-range" id="${id}" type="range" min="0" max="1" step="0.05" value="${n}">
+                    <span class="form-range-val" id="${id}-val">${n}</span>
+                </div>`;
+            };
+
+            const row = (label, html, top) =>
+                `<span class="form-label${top ? ' top' : ''}">${label}</span><div>${html}</div>`;
+
+            const phases = KILL_CHAIN_PHASES.map(p => [p.id, p.label]);
+
+            const evSection = `<div>
+                <div class="edit-section-label">event metadata</div>
+                <div class="form-grid">
+                    ${row('phase',     sel('ef-phase',     phases, ev.phase || ''))}
+                    ${row('result',    sel('ef-result',    [['','—'],['success','success'],['failure','failure'],['unknown','unknown']], ev.result || ''))}
+                    ${row('direction', sel('ef-direction', [['','—'],['ingress','ingress'],['egress','egress'],['unknown','unknown']], ev.direction || ''))}
+                    ${row('method',    inp('ef-method',    ev.methodology, 'spear-phishing…'))}
+                    ${row('tlp',       sel('ef-tlp',       [['','—'],['TLP:WHITE','TLP:WHITE'],['TLP:GREEN','TLP:GREEN'],['TLP:AMBER','TLP:AMBER'],['TLP:RED','TLP:RED']], ev.tlp || ''))}
+                    ${row('group',     inp('ef-group',     ev.activity_group))}
+                    ${row('conf',      rng('ef-conf',      ev.confidence))}
+                    <span class="form-label top">notes</span><div>${ta('ef-notes', ev.analyst_notes, 2)}</div>
+                </div>
+            </div>`;
+
+            let vertexSection = '';
+            if (kind === 'adversary') {
+                const op = v.operator || {};
+                vertexSection = `<div>
+                    <div class="edit-section-label" style="color:${meta.color}">adversary</div>
+                    <div class="form-grid">
+                        ${row('op name',       inp('ef-adv-name',    op.name))}
+                        ${row('motivation',    inp('ef-adv-motiv',   op.motivation))}
+                        ${row('sophistication', sel('ef-adv-soph',   [['','—'],['novice','novice'],['practitioner','practitioner'],['expert','expert'],['innovator','innovator'],['strategic','strategic']], op.sophistication || ''))}
+                        ${row('nation',        inp('ef-adv-nation',  op.nation_state))}
+                        ${row('aliases',       inp('ef-adv-aliases', (op.aliases || []).join(', '), 'alias1, alias2'))}
+                        ${row('conf',          rng('ef-adv-conf',    v.confidence))}
+                    </div>
+                </div>`;
+            } else if (kind === 'capability') {
+                vertexSection = `<div>
+                    <div class="edit-section-label" style="color:${meta.color}">capability</div>
+                    <div class="form-grid">
+                        ${row('name',    inp('ef-cap-name',    v.name))}
+                        ${row('type',    sel('ef-cap-type',    [['','—'],['tool','tool'],['technique','technique'],['malware','malware'],['exploit','exploit'],['vulnerability','vulnerability']], v.type || ''))}
+                        ${row('version', inp('ef-cap-version', v.version))}
+                        <span class="form-label top">description</span><div>${ta('ef-cap-desc', v.description, 3)}</div>
+                        ${row('att&amp;ck', inp('ef-cap-mitre', (v.mitre_attack || []).join(', '), 'T1566.001, T1204'))}
+                        ${row('sigma',   inp('ef-cap-sigma',   (v.sigma_rules || []).join(', ')))}
+                        ${row('conf',    rng('ef-cap-conf',    v.confidence))}
+                    </div>
+                </div>`;
+            } else if (kind === 'infrastructure') {
+                vertexSection = `<div>
+                    <div class="edit-section-label" style="color:${meta.color}">infrastructure</div>
+                    <div class="form-grid">
+                        ${row('control', sel('ef-inf-type',    [['','—'],['adversary_controlled','adversary'],['victim_controlled','victim'],['third_party','third-party'],['unknown','unknown']], v.type || ''))}
+                        <span class="form-label top">domains</span><div>${ta('ef-inf-domains', (v.domains || []).join('\n'), 3)}</div>
+                        ${row('ips',  inp('ef-inf-ips',  (v.ip_addresses || []).join(', '), '1.2.3.4, 5.6.7.8'))}
+                        <span class="form-label top">urls</span><div>${ta('ef-inf-urls', (v.urls || []).join('\n'), 2)}</div>
+                        ${row('asn',  inp('ef-inf-asn',  v.asn))}
+                        <span class="form-label top">notes</span><div>${ta('ef-inf-desc', v.description, 2)}</div>
+                        ${row('conf', rng('ef-inf-conf', v.confidence))}
+                    </div>
+                </div>`;
+            } else if (kind === 'victim') {
+                const org = v.organization || {};
+                vertexSection = `<div>
+                    <div class="edit-section-label" style="color:${meta.color}">victim</div>
+                    <div class="form-grid">
+                        ${row('persona',  inp('ef-vic-persona',  v.persona))}
+                        ${row('org name', inp('ef-vic-orgname',  org.name))}
+                        ${row('sector',   inp('ef-vic-sector',   org.sector))}
+                        ${row('country',  inp('ef-vic-country',  org.country))}
+                        ${row('size',     sel('ef-vic-size',     [['','—'],['small','small'],['medium','medium'],['large','large'],['enterprise','enterprise']], org.size || ''))}
+                        ${row('conf',     rng('ef-vic-conf',     v.confidence))}
+                    </div>
+                </div>`;
+            }
+
+            detail.innerHTML = `
+                <div class="detail-header">
+                    <span class="detail-dot" style="background:${meta.color}"></span>
+                    <span class="detail-title">${meta.label}</span>
+                    <div class="detail-conf" style="font-size:10.5px;color:var(--text-dim)">editing</div>
+                </div>
+                <div class="detail-edit-body">${evSection}${vertexSection}</div>`;
+
+            detail.querySelectorAll('input, select, textarea').forEach(el => {
+                el.addEventListener('input', () => {
+                    if (el.type === 'range') {
+                        const vEl = document.getElementById(el.id + '-val');
+                        if (vEl) vEl.textContent = (+el.value).toFixed(2);
+                    }
+                    syncFormToJson();
+                });
+            });
+        }
+
+        function syncFormToJson() {
+            const ev = currentEvents[currentIndex];
+            if (!ev) return;
+
+            const gv  = id => { const e = document.getElementById(id); return e ? e.value : ''; };
+            const tv  = id => { const e = document.getElementById(id); return e ? e.value.trim() : ''; };
+            const gf  = id => { const e = document.getElementById(id); return e ? parseFloat(e.value) : null; };
+
+            // Event metadata
+            const phase = gv('ef-phase'); if (phase) ev.phase = phase;
+            const result = gv('ef-result'); ev.result = result || undefined;
+            const dir = gv('ef-direction'); ev.direction = dir || undefined;
+            const method = tv('ef-method'); ev.methodology = method || undefined;
+            const tlp = gv('ef-tlp'); ev.tlp = tlp || undefined;
+            const group = tv('ef-group'); ev.activity_group = group || undefined;
+            const notes = tv('ef-notes'); ev.analyst_notes = notes || undefined;
+            const evConf = gf('ef-conf'); if (evConf !== null && !isNaN(evConf)) ev.confidence = evConf;
+
+            // Vertex data — merge onto existing to preserve fields not in the form
+            const kind = selectedVertex;
+            const v = JSON.parse(JSON.stringify(ev[kind] || {}));
+
+            if (kind === 'adversary') {
+                const op = {};
+                const name = tv('ef-adv-name'); if (name) op.name = name;
+                const motiv = tv('ef-adv-motiv'); if (motiv) op.motivation = motiv;
+                const soph = gv('ef-adv-soph'); if (soph) op.sophistication = soph;
+                const nation = tv('ef-adv-nation'); if (nation) op.nation_state = nation;
+                const aliases = tv('ef-adv-aliases');
+                if (aliases) op.aliases = aliases.split(',').map(s => s.trim()).filter(Boolean);
+                v.operator = Object.keys(op).length ? { ...(v.operator || {}), ...op } : v.operator;
+                const conf = gf('ef-adv-conf'); if (conf !== null && !isNaN(conf)) v.confidence = conf;
+                ev.adversary = v;
+            } else if (kind === 'capability') {
+                v.name    = tv('ef-cap-name')    || undefined;
+                v.type    = gv('ef-cap-type')    || undefined;
+                v.version = tv('ef-cap-version') || undefined;
+                v.description = tv('ef-cap-desc') || undefined;
+                const mitre = tv('ef-cap-mitre');
+                v.mitre_attack = mitre ? mitre.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+                const sigma = tv('ef-cap-sigma');
+                v.sigma_rules = sigma ? sigma.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+                const conf = gf('ef-cap-conf'); if (conf !== null && !isNaN(conf)) v.confidence = conf;
+                ev.capability = v;
+            } else if (kind === 'infrastructure') {
+                v.type = gv('ef-inf-type') || undefined;
+                const domsEl = document.getElementById('ef-inf-domains');
+                if (domsEl) { const d = domsEl.value.trim(); v.domains = d ? d.split('\n').map(s => s.trim()).filter(Boolean) : undefined; }
+                const ips = tv('ef-inf-ips');
+                v.ip_addresses = ips ? ips.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+                const urlsEl = document.getElementById('ef-inf-urls');
+                if (urlsEl) { const u = urlsEl.value.trim(); v.urls = u ? u.split('\n').map(s => s.trim()).filter(Boolean) : undefined; }
+                v.asn = tv('ef-inf-asn') || undefined;
+                v.description = tv('ef-inf-desc') || undefined;
+                const conf = gf('ef-inf-conf'); if (conf !== null && !isNaN(conf)) v.confidence = conf;
+                ev.infrastructure = v;
+            } else if (kind === 'victim') {
+                v.persona = tv('ef-vic-persona') || undefined;
+                const org = {};
+                const orgName = tv('ef-vic-orgname'); if (orgName) org.name = orgName;
+                const sector = tv('ef-vic-sector'); if (sector) org.sector = sector;
+                const country = tv('ef-vic-country'); if (country) org.country = country;
+                const size = gv('ef-vic-size'); if (size) org.size = size;
+                v.organization = Object.keys(org).length ? org : undefined;
+                const conf = gf('ef-vic-conf'); if (conf !== null && !isNaN(conf)) v.confidence = conf;
+                ev.victim = v;
+            }
+
+            // Serialize back to JSON textarea (programmatic set does not fire 'input')
+            serializeEventsToTextarea();
+
+            // Refresh diamond without re-rendering the form
+            renderDiamond(ev);
+            renderMeta(ev);
+            renderPager();
+            renderKillChain();
+            $$('#diamondSvg .vertex').forEach(g => g.classList.toggle('selected', g.dataset.vertex === selectedVertex));
+        }
+
+        $('#editModeBtn').addEventListener('click', toggleEditMode);
+        $('#addEventBtn').addEventListener('click', addNewEvent);
 
         $('#jsonInput').value = JSON.stringify(EXAMPLE, null, 2);
         tryRender();
