@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CODENAME // GENERATOR</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #080b0f;
+      --surface:   #0d1219;
+      --border:    #1e2d3d;
+      --border-hi: #2e4a63;
+      --text:      #7a9ab5;
+      --text-dim:  #3a5168;
+      --text-hi:   #c4ddf0;
+      --amber:     #e8a020;
+      --amber-dim: #7a4f08;
+      --cyan:      #20c4d8;
+      --cyan-dim:  #0a4a52;
+      --red:       #e84040;
+      --mono:      'Share Tech Mono', monospace;
+      --display:   'Orbitron', monospace;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* Scanline overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.08) 2px,
+        rgba(0,0,0,0.08) 4px
+      );
+      pointer-events: none;
+      z-index: 1000;
+    }
+
+    /* Grid background */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(30,45,61,0.3) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(30,45,61,0.3) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .wrapper {
+      position: relative;
+      z-index: 1;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* ── HEADER ── */
+    header {
+      padding: 32px 0 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+    }
+
+    .logo {
+      font-family: var(--display);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.3em;
+      color: var(--text-hi);
+      text-transform: uppercase;
+    }
+
+    .logo span {
+      color: var(--amber);
+    }
+
+    .logo-sep {
+      color: var(--border-hi);
+      font-size: 18px;
+    }
+
+    .version {
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      color: var(--text-dim);
+    }
+
+    .status-bar {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      color: var(--text-dim);
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      transition: background 0.3s;
+    }
+
+    .status-dot.ready  { background: #40c860; box-shadow: 0 0 6px #40c860; }
+    .status-dot.error  { background: var(--red); box-shadow: 0 0 6px var(--red); }
+    .status-dot.loading {
+      background: var(--amber);
+      animation: pulse 1s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+
+    /* ── MODE TABS ── */
+    .mode-tabs {
+      display: flex;
+      gap: 0;
+      margin-top: 28px;
+      border: 1px solid var(--border);
+    }
+
+    .tab {
+      flex: 1;
+      padding: 10px 20px;
+      background: none;
+      border: none;
+      border-right: 1px solid var(--border);
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      cursor: pointer;
+      transition: all 0.15s;
+      position: relative;
+    }
+
+    .tab:last-child { border-right: none; }
+
+    .tab::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: transparent;
+      transition: background 0.15s;
+    }
+
+    .tab[data-mode="incident"].active {
+      color: var(--cyan);
+      background: rgba(32,196,216,0.05);
+    }
+    .tab[data-mode="incident"].active::before { background: var(--cyan); }
+
+    .tab[data-mode="threat-actor"].active {
+      color: var(--amber);
+      background: rgba(232,160,32,0.05);
+    }
+    .tab[data-mode="threat-actor"].active::before { background: var(--amber); }
+
+    .tab:not(.active):hover {
+      color: var(--text);
+      background: rgba(255,255,255,0.02);
+    }
+
+    .tab-label-prefix {
+      color: var(--text-dim);
+      margin-right: 4px;
+    }
+
+    /* ── FORMAT HINT ── */
+    .format-hint {
+      margin-top: 10px;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+      height: 16px;
+      transition: color 0.2s;
+    }
+
+    .format-hint.incident    { color: var(--cyan-dim); }
+    .format-hint.threat-actor { color: var(--amber-dim); }
+
+    .format-hint span { color: inherit; opacity: 0.7; }
+
+    /* ── NAME DISPLAY ── */
+    .name-display-wrap {
+      margin-top: 36px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .name-display-wrap::before {
+      content: attr(data-label);
+      position: absolute;
+      top: 10px; left: 14px;
+      font-size: 9px;
+      letter-spacing: 0.25em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+
+    .name-display {
+      padding: 48px 32px 32px;
+      min-height: 140px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .name-text {
+      font-family: var(--display);
+      font-size: clamp(22px, 5vw, 42px);
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-align: center;
+      color: var(--text-dim);
+      transition: color 0.2s, text-shadow 0.2s;
+      word-break: break-word;
+    }
+
+    .name-text.incident {
+      color: var(--cyan);
+      text-shadow: 0 0 30px rgba(32,196,216,0.25);
+    }
+
+    .name-text.threat-actor {
+      color: var(--amber);
+      text-shadow: 0 0 30px rgba(232,160,32,0.25);
+    }
+
+    .name-text.placeholder {
+      font-size: 14px;
+      font-family: var(--mono);
+      letter-spacing: 0.3em;
+      color: var(--text-dim);
+      font-weight: 400;
+      text-shadow: none;
+    }
+
+    .name-text.flash {
+      animation: nameFlash 0.25s ease-out;
+    }
+
+    @keyframes nameFlash {
+      0%   { opacity: 0; transform: translateY(4px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+
+    /* scan sweep on generate */
+    .name-display-wrap.scanning::after {
+      content: '';
+      position: absolute;
+      top: 0; left: -100%; right: auto;
+      width: 60%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.03), transparent);
+      animation: scanSweep 0.35s ease-out forwards;
+    }
+
+    @keyframes scanSweep {
+      to { left: 150%; }
+    }
+
+    /* ── ACTION ROW ── */
+    .action-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .btn {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      border: 1px solid var(--border);
+      background: none;
+      color: var(--text);
+      padding: 10px 20px;
+      cursor: pointer;
+      transition: all 0.12s;
+      white-space: nowrap;
+    }
+
+    .btn:hover {
+      color: var(--text-hi);
+      border-color: var(--border-hi);
+      background: rgba(255,255,255,0.02);
+    }
+
+    .btn:active { transform: translateY(1px); }
+
+    .btn-primary {
+      flex: 1;
+      color: var(--text-hi);
+      border-color: var(--border-hi);
+      background: rgba(255,255,255,0.02);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-primary::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: transparent;
+      transition: background 0.12s;
+    }
+
+    .btn-primary:hover::before {
+      background: rgba(255,255,255,0.03);
+    }
+
+    .btn-primary.incident {
+      border-color: var(--cyan-dim);
+      color: var(--cyan);
+    }
+
+    .btn-primary.incident:hover {
+      border-color: var(--cyan);
+      box-shadow: 0 0 12px rgba(32,196,216,0.15);
+    }
+
+    .btn-primary.threat-actor {
+      border-color: var(--amber-dim);
+      color: var(--amber);
+    }
+
+    .btn-primary.threat-actor:hover {
+      border-color: var(--amber);
+      box-shadow: 0 0 12px rgba(232,160,32,0.15);
+    }
+
+    .btn-copy.copied {
+      color: #40c860;
+      border-color: #40c860;
+    }
+
+    /* ── SETTINGS ── */
+    .settings-toggle {
+      margin-top: 28px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: none;
+      border: none;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid transparent;
+      padding: 10px 0;
+      width: 100%;
+      text-align: left;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.25em;
+      color: var(--text-dim);
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: color 0.15s, border-bottom-color 0.15s;
+    }
+
+    .settings-toggle:hover { color: var(--text); }
+
+    .settings-toggle.open {
+      border-bottom-color: var(--border);
+      color: var(--text);
+    }
+
+    .toggle-arrow {
+      display: inline-block;
+      transition: transform 0.2s;
+      font-style: normal;
+    }
+
+    .settings-toggle.open .toggle-arrow { transform: rotate(90deg); }
+
+    .settings-panel {
+      display: none;
+      padding: 20px 0 28px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .settings-panel.open { display: block; }
+
+    .settings-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 32px;
+      flex-wrap: wrap;
+    }
+
+    .settings-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .settings-label {
+      font-size: 9px;
+      letter-spacing: 0.3em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+
+    .word-count-btns {
+      display: flex;
+      gap: 0;
+    }
+
+    .word-count-btn {
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      border: 1px solid var(--border);
+      background: none;
+      color: var(--text-dim);
+      padding: 7px 18px;
+      cursor: pointer;
+      transition: all 0.12s;
+    }
+
+    .word-count-btn:first-child { border-right: none; }
+
+    .word-count-btn.active {
+      color: var(--text-hi);
+      background: rgba(255,255,255,0.04);
+      border-color: var(--border-hi);
+    }
+
+    .word-count-btn:hover:not(.active) { color: var(--text); }
+
+    /* Exclusion list */
+    .exclusion-group {
+      flex: 1;
+      min-width: 260px;
+    }
+
+    .exclusion-note {
+      font-size: 9px;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+      line-height: 1.8;
+    }
+
+    textarea.exclusion-input {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 12px;
+      padding: 10px 12px;
+      resize: vertical;
+      min-height: 80px;
+      outline: none;
+      transition: border-color 0.15s;
+      line-height: 1.8;
+    }
+
+    textarea.exclusion-input::placeholder { color: var(--text-dim); opacity: 0.5; }
+    textarea.exclusion-input:focus { border-color: var(--border-hi); }
+
+    .exclusion-count {
+      margin-top: 4px;
+      font-size: 9px;
+      letter-spacing: 0.15em;
+      color: var(--text-dim);
+    }
+
+    /* ── FOOTER ── */
+    footer {
+      margin-top: auto;
+      padding: 20px 0;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 9px;
+      letter-spacing: 0.2em;
+      color: var(--text-dim);
+    }
+
+    .wordlist-counts { display: flex; gap: 16px; }
+
+    /* ── NOTIFICATION ── */
+    .notif {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--surface);
+      border: 1px solid var(--border-hi);
+      padding: 10px 16px;
+      font-size: 11px;
+      letter-spacing: 0.15em;
+      color: var(--text-hi);
+      z-index: 999;
+      transform: translateY(80px);
+      opacity: 0;
+      transition: all 0.2s;
+    }
+
+    .notif.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    .notif.error { border-color: var(--red); color: var(--red); }
+
+    @media (max-width: 560px) {
+      .name-text { font-size: 18px; }
+      .logo { font-size: 9px; }
+      header { flex-wrap: wrap; }
+      .status-bar { margin-left: 0; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo"><span>//</span> CODENAME</div>
+    <span class="logo-sep">&nbsp;</span>
+    <div class="version">GENERATOR v1.0</div>
+    <div class="status-bar">
+      <div class="status-dot loading" id="statusDot"></div>
+      <span id="statusText">LOADING WORDLISTS</span>
+    </div>
+  </header>
+
+  <!-- MODE TABS -->
+  <div class="mode-tabs" role="tablist">
+    <button class="tab active" data-mode="incident" onclick="setMode('incident')" role="tab">
+      <span class="tab-label-prefix">[01]</span> INCIDENT NAME
+    </button>
+    <button class="tab" data-mode="threat-actor" onclick="setMode('threat-actor')" role="tab">
+      <span class="tab-label-prefix">[02]</span> THREAT ACTOR
+    </button>
+  </div>
+
+  <div class="format-hint incident" id="formatHint"></div>
+
+  <!-- NAME DISPLAY -->
+  <div class="name-display-wrap" data-label="GENERATED CODENAME" id="displayWrap">
+    <div class="name-display">
+      <div class="name-text placeholder" id="nameText">[ AWAITING GENERATION ]</div>
+    </div>
+  </div>
+
+  <!-- ACTION ROW -->
+  <div class="action-row">
+    <button class="btn btn-primary incident" id="generateBtn" onclick="generate()">
+      &#9654;&nbsp; GENERATE
+    </button>
+    <button class="btn btn-copy" id="copyBtn" onclick="copyName()" title="Copy to clipboard">
+      COPY
+    </button>
+  </div>
+
+  <!-- SETTINGS -->
+  <button class="settings-toggle" id="settingsToggle" onclick="toggleSettings()">
+    <span class="toggle-arrow">&#9658;</span>
+    &nbsp;SETTINGS &amp; EXCLUSIONS
+  </button>
+
+  <div class="settings-panel" id="settingsPanel">
+    <div class="settings-row">
+
+      <div class="settings-group">
+        <div class="settings-label">Word Count</div>
+        <div class="word-count-btns">
+          <button class="word-count-btn active" id="btn2" onclick="setWordCount(2)">2 WORDS</button>
+          <button class="word-count-btn"        id="btn3" onclick="setWordCount(3)">3 WORDS</button>
+        </div>
+        <div class="exclusion-note" id="formatNote" style="margin-top:6px;"></div>
+      </div>
+
+      <div class="settings-group exclusion-group">
+        <div class="settings-label">Exclusion List</div>
+        <div class="exclusion-note">
+          Words or full combinations to block — one per line.<br>
+          Case-insensitive. Partial matches are excluded.
+        </div>
+        <textarea
+          class="exclusion-input"
+          id="exclusionInput"
+          placeholder="PHOENIX&#10;SILENT WRAITH&#10;KRAKEN"
+          oninput="updateExclusions()"
+          spellcheck="false"
+        ></textarea>
+        <div class="exclusion-count" id="exclusionCount">0 EXCLUSIONS ACTIVE</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="wordlist-counts">
+      <span id="countAdj">ADJ: —</span>
+      <span id="countEnt">ENT: —</span>
+      <span id="countEvt">EVT: —</span>
+    </div>
+    <span>WORDLISTS: ./wordlists/</span>
+  </footer>
+
+</div>
+
+<!-- NOTIFICATION -->
+<div class="notif" id="notif"></div>
+
+<script>
+// ── STATE ──────────────────────────────────────────────────────────────────
+const state = {
+  mode:       'incident',
+  wordCount:  2,
+  exclusions: [],
+  loaded:     false,
+  currentName: null,
+  wordlists: {
+    adjectives: [],
+    entities:   [],
+    events:     []
+  }
+};
+
+// ── FORMAT DESCRIPTIONS ────────────────────────────────────────────────────
+const FORMAT_HINTS = {
+  incident: {
+    2: '[ ENTITY ] + [ EVENT ]  →  e.g. BASILISK ECLIPSE',
+    3: '[ OPERATION ] + [ ENTITY ] + [ EVENT ]  →  e.g. OPERATION BASILISK ECLIPSE'
+  },
+  'threat-actor': {
+    2: '[ ADJECTIVE ] + [ ENTITY ]  →  e.g. HOLLOW SPHINX',
+    3: '[ ADJECTIVE ] + [ ADJECTIVE ] + [ ENTITY ]  →  e.g. HOLLOW AMBER SPHINX'
+  }
+};
+
+// ── INIT ───────────────────────────────────────────────────────────────────
+async function init() {
+  updateFormatHint();
+  updateFormatNote();
+  try {
+    const [adjData, entData, evtData] = await Promise.all([
+      fetch('./wordlists/adjectives.json').then(r => { if (!r.ok) throw r; return r.json(); }),
+      fetch('./wordlists/entities.json').then(r => { if (!r.ok) throw r; return r.json(); }),
+      fetch('./wordlists/events.json').then(r => { if (!r.ok) throw r; return r.json(); }),
+    ]);
+
+    state.wordlists.adjectives = adjData;
+    state.wordlists.entities   = entData;
+    state.wordlists.events     = evtData;
+    state.loaded = true;
+
+    document.getElementById('statusDot').className  = 'status-dot ready';
+    document.getElementById('statusText').textContent = 'WORDLISTS READY';
+    document.getElementById('countAdj').textContent = `ADJ: ${adjData.length}`;
+    document.getElementById('countEnt').textContent = `ENT: ${entData.length}`;
+    document.getElementById('countEvt').textContent = `EVT: ${evtData.length}`;
+    document.getElementById('generateBtn').disabled = false;
+  } catch (err) {
+    document.getElementById('statusDot').className  = 'status-dot error';
+    document.getElementById('statusText').textContent = 'LOAD ERROR';
+    showNotif('Failed to load wordlists. Check ./wordlists/ path.', true);
+    console.error('Wordlist load error:', err);
+  }
+}
+
+// ── GENERATION ────────────────────────────────────────────────────────────
+function pick(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function buildName() {
+  const { mode, wordCount, wordlists } = state;
+  let parts;
+
+  if (mode === 'incident') {
+    if (wordCount === 2) {
+      parts = [pick(wordlists.entities), pick(wordlists.events)];
+    } else {
+      parts = ['OPERATION', pick(wordlists.entities), pick(wordlists.events)];
+    }
+  } else {
+    // threat-actor
+    if (wordCount === 2) {
+      parts = [pick(wordlists.adjectives), pick(wordlists.entities)];
+    } else {
+      let adj1 = pick(wordlists.adjectives);
+      let adj2 = pick(wordlists.adjectives);
+      let attempts = 0;
+      while (adj2 === adj1 && attempts++ < 20) adj2 = pick(wordlists.adjectives);
+      parts = [adj1, adj2, pick(wordlists.entities)];
+    }
+  }
+
+  return parts.map(w => w.toUpperCase()).join(' ');
+}
+
+function isExcluded(name) {
+  const upper = name.toUpperCase();
+  return state.exclusions.some(ex => upper.includes(ex.toUpperCase()));
+}
+
+function generate() {
+  if (!state.loaded) { showNotif('Wordlists not ready.', true); return; }
+
+  let name, attempts = 0;
+  do {
+    name = buildName();
+    attempts++;
+  } while (isExcluded(name) && attempts < 200);
+
+  if (attempts >= 200) {
+    showNotif('Could not generate — exclusion list too broad.', true);
+    return;
+  }
+
+  state.currentName = name;
+  displayName(name);
+
+  // Reset copy button
+  const copyBtn = document.getElementById('copyBtn');
+  copyBtn.textContent = 'COPY';
+  copyBtn.classList.remove('copied');
+}
+
+function displayName(name) {
+  const el   = document.getElementById('nameText');
+  const wrap = document.getElementById('displayWrap');
+
+  el.className = `name-text ${state.mode}`;
+  el.textContent = name;
+
+  // Flash animation
+  el.classList.remove('flash');
+  void el.offsetWidth;
+  el.classList.add('flash');
+
+  // Scan sweep
+  wrap.classList.remove('scanning');
+  void wrap.offsetWidth;
+  wrap.classList.add('scanning');
+  setTimeout(() => wrap.classList.remove('scanning'), 400);
+}
+
+// ── COPY ──────────────────────────────────────────────────────────────────
+function copyName() {
+  if (!state.currentName) return;
+  navigator.clipboard.writeText(state.currentName).then(() => {
+    const btn = document.getElementById('copyBtn');
+    btn.textContent = 'COPIED';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = 'COPY';
+      btn.classList.remove('copied');
+    }, 2000);
+  }).catch(() => showNotif('Clipboard write failed.', true));
+}
+
+// ── MODE ──────────────────────────────────────────────────────────────────
+function setMode(mode) {
+  state.mode = mode;
+  state.currentName = null;
+
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelector(`.tab[data-mode="${mode}"]`).classList.add('active');
+
+  const genBtn = document.getElementById('generateBtn');
+  genBtn.className = `btn btn-primary ${mode}`;
+
+  const nameEl = document.getElementById('nameText');
+  nameEl.className = 'name-text placeholder';
+  nameEl.textContent = '[ AWAITING GENERATION ]';
+
+  const hint = document.getElementById('formatHint');
+  hint.className = `format-hint ${mode}`;
+
+  updateFormatHint();
+  updateFormatNote();
+}
+
+// ── WORD COUNT ────────────────────────────────────────────────────────────
+function setWordCount(n) {
+  state.wordCount = n;
+  document.getElementById('btn2').classList.toggle('active', n === 2);
+  document.getElementById('btn3').classList.toggle('active', n === 3);
+  updateFormatHint();
+  updateFormatNote();
+}
+
+function updateFormatHint() {
+  document.getElementById('formatHint').textContent =
+    FORMAT_HINTS[state.mode][state.wordCount];
+}
+
+function updateFormatNote() {
+  const notes = {
+    incident: {
+      2: 'Entity drawn from mythology/fiction pool. Event from operational vocabulary.',
+      3: '"OPERATION" prefix is fixed. Entity + Event randomised.'
+    },
+    'threat-actor': {
+      2: 'Adjective + Entity from full mythological/fiction pool.',
+      3: 'Two distinct adjectives + Entity. No predatory skew applied.'
+    }
+  };
+  document.getElementById('formatNote').textContent = notes[state.mode][state.wordCount];
+}
+
+// ── SETTINGS ─────────────────────────────────────────────────────────────
+function toggleSettings() {
+  const toggle = document.getElementById('settingsToggle');
+  const panel  = document.getElementById('settingsPanel');
+  toggle.classList.toggle('open');
+  panel.classList.toggle('open');
+}
+
+function updateExclusions() {
+  const raw = document.getElementById('exclusionInput').value;
+  state.exclusions = raw
+    .split('\n')
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+  const n = state.exclusions.length;
+  document.getElementById('exclusionCount').textContent =
+    `${n} EXCLUSION${n !== 1 ? 'S' : ''} ACTIVE`;
+}
+
+// ── NOTIFICATION ──────────────────────────────────────────────────────────
+let notifTimer;
+function showNotif(msg, isError = false) {
+  const el = document.getElementById('notif');
+  el.textContent = msg;
+  el.className = `notif show${isError ? ' error' : ''}`;
+  clearTimeout(notifTimer);
+  notifTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ── KEYBOARD SHORTCUT ─────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+    generate();
+  }
+});
+
+// ── START ─────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
