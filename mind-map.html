@@ -33,6 +33,7 @@ input.txt-in{background:#12121f;border:1px solid #2a2a4a;color:#e0e0e0;padding:3
 .node-shape{transition:filter .1s}
 .node-text{pointer-events:none;font-family:system-ui,sans-serif}
 .node-grp.selected .node-shape{filter:drop-shadow(0 0 5px #5a6fff99)}
+.node-grp.connect-src .node-shape{filter:drop-shadow(0 0 8px #f5a62399)}
 
 /* ── Edges ── */
 .edge-grp{cursor:pointer}
@@ -49,6 +50,11 @@ input.txt-in{background:#12121f;border:1px solid #2a2a4a;color:#e0e0e0;padding:3
 
 /* ── Edit overlay ── */
 #edit-overlay{position:fixed;background:rgba(20,20,50,.95);color:#fff;border:2px solid #5a6fff;border-radius:6px;font-family:system-ui,sans-serif;text-align:center;resize:none;outline:none;z-index:999;padding:6px;line-height:1.3;overflow:hidden}
+
+/* ── Context menu ── */
+#ctx-menu .ctx-item{padding:6px 14px;cursor:pointer;color:#c0c0d0;white-space:nowrap}
+#ctx-menu .ctx-item:hover{background:#22223a;color:#fff}
+#ctx-menu .ctx-sep{height:1px;background:#2a2a4a;margin:3px 0}
 </style>
 </head>
 <body>
@@ -129,6 +135,8 @@ input.txt-in{background:#12121f;border:1px solid #2a2a4a;color:#e0e0e0;padding:3
   <div class="tb-group">
     <button class="btn" onclick="undo()" title="Undo  Ctrl+Z">↩ Undo</button>
     <button class="btn" onclick="redo()" title="Redo  Ctrl+Y">↪ Redo</button>
+    <button class="btn" id="btn-fit" onclick="fitView()" title="Fit all nodes  Ctrl+0">⊡ Fit</button>
+    <span id="zoom-pct" style="font-size:11px;color:#777;padding:0 4px;min-width:38px;text-align:right;pointer-events:none">100%</span>
   </div>
   <div class="sep"></div>
   <div class="tb-group">
@@ -161,6 +169,8 @@ input.txt-in{background:#12121f;border:1px solid #2a2a4a;color:#e0e0e0;padding:3
 
 <input type="file" id="file-in" accept=".json" style="display:none" onchange="loadFile(this)">
 
+<div id="ctx-menu" style="display:none;position:fixed;z-index:1000;min-width:140px;background:#1a1a2e;border:1px solid #2a2a4a;border-radius:6px;box-shadow:0 4px 18px rgba(0,0,0,.6);padding:4px 0;font-size:13px"></div>
+
 <script>
 // ═══════════════════════════════════════════════════════════════
 //  CONSTANTS & DEFAULTS
@@ -186,6 +196,7 @@ const S = {
   nid: 1,
 };
 const history = [], redoStack = [];
+let altHeld = false;
 
 // ═══════════════════════════════════════════════════════════════
 //  DOM REFS
@@ -275,7 +286,8 @@ function renderNodes() {
     let g = nodesL.querySelector(`[data-id="${node.id}"]`);
     if (!g) { g = makeNodeEl(node); nodesL.appendChild(g); }
     else     { syncNodeEl(g, node); }
-    g.classList.toggle('selected', !!(S.sel?.type === 'node' && S.sel.id === node.id));
+    g.classList.toggle('selected',    !!(S.sel?.type === 'node' && S.sel.id === node.id));
+    g.classList.toggle('connect-src', !!(S.tool === 'connect' && S.connecting === node.id));
   });
 }
 
@@ -545,6 +557,7 @@ function onNodeMD(e) {
     if (!S.connecting) {
       S.connecting = id;
       setStatus(`Source: "${node.text||id}" — now click the target node`);
+      render();
     } else if (S.connecting !== id) {
       saveHistory();
       const edge = { id: uid(), from: S.connecting, to: id, ...DE };
@@ -600,11 +613,10 @@ svg.addEventListener('mousemove', onCanvasMM);
 svg.addEventListener('mouseup',   onCanvasMU);
 svg.addEventListener('dblclick',  onCanvasDbl);
 svg.addEventListener('wheel',     onWheel, {passive:false});
-svg.addEventListener('contextmenu', e => e.preventDefault());
-
 function onCanvasMD(e) {
   if (e.button === 1 || (e.button === 0 && e.altKey)) {
     S.panDrag = { sx:e.clientX, sy:e.clientY, opx:S.pan.x, opy:S.pan.y };
+    updatePanCursor();
     return;
   }
   if (e.button !== 0) return;
@@ -700,6 +712,7 @@ function onCanvasMU(e) {
     }
   }
   S.panDrag = null;
+  updatePanCursor();
   if (S.resizing) {
     const node = getN(S.resizing.id);
     if (node && S.sel?.type === 'node' && S.sel.id === node.id) syncProps();
@@ -727,6 +740,17 @@ function onWheel(e) {
 
 function applyTransform() {
   canvasG.setAttribute('transform', `translate(${S.pan.x},${S.pan.y}) scale(${S.zoom})`);
+  const zp = document.getElementById('zoom-pct');
+  if (zp) zp.textContent = Math.round(S.zoom * 100) + '%';
+}
+
+function fitView() {
+  const bb = contentBBox(), pad = 60;
+  const r = svg.getBoundingClientRect();
+  S.zoom = Math.max(0.05, Math.min(8, Math.min(r.width / (bb.w + 2*pad), r.height / (bb.h + 2*pad))));
+  S.pan.x = (r.width  - bb.w * S.zoom) / 2 - bb.x * S.zoom;
+  S.pan.y = (r.height - bb.h * S.zoom) / 2 - bb.y * S.zoom;
+  applyTransform();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -912,7 +936,7 @@ function setTool(t) {
   S.tool = t; S.connecting = null;
   document.querySelectorAll('.btn[id^=btn-]').forEach(b => b.classList.remove('active'));
   const b = document.getElementById('btn-'+t); if (b) b.classList.add('active');
-  svg.style.cursor = {select:'default', connect:'crosshair'}[t] || 'copy';
+  updatePanCursor();
   const msgs = {
     select:  'Click to select · Drag to move · Double-click to edit · Tab = child branch · Enter = sibling branch · Dbl-click canvas = new node',
     rect:    'Click canvas to place a rectangle',
@@ -923,6 +947,7 @@ function setTool(t) {
     connect: 'Click a source node, then click the target node',
   };
   setStatus(msgs[t] || '');
+  render();
 }
 
 function setProp(key, val) {
@@ -1042,15 +1067,23 @@ function dl(blob, name) {
 // ═══════════════════════════════════════════════════════════════
 //  KEYBOARD
 // ═══════════════════════════════════════════════════════════════
+function updatePanCursor() {
+  if (S.panDrag)    svg.style.cursor = 'grabbing';
+  else if (altHeld) svg.style.cursor = 'grab';
+  else              svg.style.cursor = ({select:'default', connect:'crosshair'}[S.tool] || 'copy');
+}
+
 document.addEventListener('keydown', e => {
+  if (e.key === 'Alt') { altHeld = true; updatePanCursor(); }
   if (editTA) return;
   if (e.key==='Tab' && S.sel?.type==='node') { e.preventDefault(); addBranch(S.sel.id, false); return; }
   if (e.key==='Enter' && S.sel?.type==='node') { e.preventDefault(); addBranch(S.sel.id, true); return; }
   if ((e.key==='Delete'||e.key==='Backspace') && S.sel) { e.preventDefault(); delSelected(); return; }
-  if (e.key==='Escape') { S.connecting=null; sel(null); setTool('select'); render(); return; }
+  if (e.key==='Escape') { hideCtxMenu(); S.connecting=null; sel(null); setTool('select'); render(); return; }
   if (e.ctrlKey||e.metaKey) {
     if (e.key==='z') { e.preventDefault(); undo(); return; }
     if (e.key==='y'||(e.key==='z'&&e.shiftKey)) { e.preventDefault(); redo(); return; }
+    if (e.key==='0') { e.preventDefault(); fitView(); return; }
     if (e.key==='d' && S.sel?.type==='node') {
       e.preventDefault();
       const src = getN(S.sel.id); if (!src) return;
@@ -1063,6 +1096,75 @@ document.addEventListener('keydown', e => {
     const map = {v:'select',r:'rect',u:'rounded',e:'ellipse',d:'diamond',t:'text',c:'connect'};
     if (map[e.key.toLowerCase()]) setTool(map[e.key.toLowerCase()]);
   }
+});
+
+document.addEventListener('keyup', e => {
+  if (e.key === 'Alt') { altHeld = false; updatePanCursor(); }
+});
+window.addEventListener('blur', () => { altHeld = false; updatePanCursor(); });
+
+// ═══════════════════════════════════════════════════════════════
+//  CONTEXT MENU
+// ═══════════════════════════════════════════════════════════════
+const ctxMenu = document.getElementById('ctx-menu');
+
+function showCtxMenu(x, y, items) {
+  ctxMenu.innerHTML = '';
+  items.forEach(item => {
+    if (item === '---') {
+      const sep = document.createElement('div'); sep.className = 'ctx-sep';
+      ctxMenu.appendChild(sep); return;
+    }
+    const d = document.createElement('div'); d.className = 'ctx-item';
+    d.textContent = item.label;
+    d.addEventListener('mousedown', ev => { ev.stopPropagation(); hideCtxMenu(); item.action(); });
+    ctxMenu.appendChild(d);
+  });
+  ctxMenu.style.display = 'block';
+  const mw = ctxMenu.offsetWidth, mh = ctxMenu.offsetHeight;
+  ctxMenu.style.left = Math.min(x, window.innerWidth  - mw - 4) + 'px';
+  ctxMenu.style.top  = Math.min(y, window.innerHeight - mh - 4) + 'px';
+}
+
+function hideCtxMenu() { ctxMenu.style.display = 'none'; }
+
+svg.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const pt = svgPt(e);
+  let hitNode = null;
+  for (let i = S.nodes.length - 1; i >= 0; i--) {
+    const n = S.nodes[i];
+    if (pt.x >= n.x && pt.x <= n.x+n.w && pt.y >= n.y && pt.y <= n.y+n.h) { hitNode = n; break; }
+  }
+  let hitEdge = null;
+  if (!hitNode) {
+    const target = document.elementFromPoint(e.clientX, e.clientY);
+    const eg = target?.closest('.edge-grp');
+    if (eg) hitEdge = getE(eg.dataset.id);
+  }
+  if (hitNode) {
+    sel({type:'node', id:hitNode.id}); render();
+    showCtxMenu(e.clientX, e.clientY, [
+      { label:'Edit',       action:() => startEdit(hitNode.id) },
+      { label:'Duplicate',  action:() => { saveHistory(); const dup={...hitNode,id:uid(),x:hitNode.x+24,y:hitNode.y+24}; S.nodes.push(dup); sel({type:'node',id:dup.id}); render(); }},
+      { label:'Add Branch', action:() => addBranch(hitNode.id, false) },
+      '---',
+      { label:'Delete',     action:() => { sel({type:'node',id:hitNode.id}); delSelected(); }},
+    ]);
+  } else if (hitEdge) {
+    sel({type:'edge', id:hitEdge.id}); render();
+    showCtxMenu(e.clientX, e.clientY, [
+      { label:'Delete', action:() => { sel({type:'edge',id:hitEdge.id}); delSelected(); }},
+    ]);
+  } else {
+    showCtxMenu(e.clientX, e.clientY, [
+      { label:'Add node here', action:() => { saveHistory(); addNode('rounded', pt.x-DN.w/2, pt.y-DN.h/2); }},
+    ]);
+  }
+});
+
+document.addEventListener('mousedown', e => {
+  if (ctxMenu.style.display !== 'none' && !ctxMenu.contains(e.target)) hideCtxMenu();
 });
 
 // ═══════════════════════════════════════════════════════════════
