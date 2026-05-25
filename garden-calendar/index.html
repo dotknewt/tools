@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Garden Calendar Generator</title>
+  <link rel="stylesheet" href="css/style.css">
+
+  <!-- Data files (assign globals; works on file:// and http://) -->
+  <script src="data/activities.js"></script>
+  <script src="data/plants.js"></script>
+
+  <!-- App logic -->
+  <script src="js/ics.js"></script>
+  <script src="js/app.js"></script>
+</head>
+<body>
+
+<div class="page-wrapper">
+
+  <header class="app-header">
+    <p class="header-eyebrow">Horticultural Calendar</p>
+    <h1>Garden Calendar</h1>
+    <div class="header-rule" aria-hidden="true">✦</div>
+    <p>Select plants &amp; activities — download a <em>.ics</em> file for Google Calendar, Apple Calendar, or Outlook.</p>
+  </header>
+
+  <div class="settings-bar">
+    <label class="tooltip-label">
+      Season zone
+      <span
+        class="tooltip-icon"
+        tabindex="0"
+        title="USDA zones describe winter cold hardiness, not frost timing. Use as an approximate seasonal guide. Non-US gardeners: choose Custom offset."
+        aria-label="Zone note: USDA zones describe winter cold hardiness, not frost timing. Non-US gardeners choose Custom offset."
+      >?</span>
+      <select id="zone-select">
+        <option value="3">Zone 3 (+28 days later)</option>
+        <option value="4">Zone 4 (+21 days later)</option>
+        <option value="5">Zone 5 (+10 days later)</option>
+        <option value="6" selected>Zone 6 (baseline)</option>
+        <option value="7">Zone 7 (−10 days earlier)</option>
+        <option value="8">Zone 8 (−21 days earlier)</option>
+        <option value="9">Zone 9 (−28 days earlier)</option>
+        <option value="10">Zone 10 (−35 days earlier)</option>
+        <option value="custom">Custom offset…</option>
+      </select>
+    </label>
+
+    <label
+      id="custom-offset-row"
+      title="Positive = push spring activities later (colder climate). Negative = earlier (warmer climate)."
+    >
+      Offset (days)
+      <input type="number" id="custom-offset" value="0" min="-90" max="90">
+    </label>
+
+    <label>
+      <input type="checkbox" id="rrule-yearly"> Repeat events yearly
+    </label>
+  </div>
+
+  <div class="main-layout">
+
+    <!-- Left: Plant picker -->
+    <section class="panel" aria-label="Plant selection">
+      <div class="panel-heading">Choose Plants &amp; Activities</div>
+
+      <div class="category-tabs" role="tablist" aria-label="Plant category">
+        <button class="category-tab active" role="tab" aria-selected="true" data-category="bonsai">Bonsai</button>
+        <button class="category-tab" role="tab" aria-selected="false" data-category="vegetables-herbs">Vegetables &amp; Herbs</button>
+        <button class="category-tab" role="tab" aria-selected="false" data-category="general">General</button>
+      </div>
+
+      <input
+        type="search"
+        id="plant-search"
+        placeholder="Search plants…"
+        aria-label="Search plants in current category"
+        autocomplete="off"
+      >
+
+      <div class="bulk-controls">
+        <button class="select-all-btn" type="button">Select all</button>
+        <button class="clear-all-btn" type="button">Clear all</button>
+      </div>
+
+      <div id="plant-list" role="list" aria-label="Plant list"></div>
+    </section>
+
+    <!-- Right: Live preview -->
+    <section class="panel" aria-label="Event preview">
+      <div class="preview-header">
+        <div class="panel-heading">Event Preview</div>
+        <span id="event-count-label" aria-live="polite">
+          <span id="event-count">0</span> events
+        </span>
+      </div>
+
+      <div id="preview-list" aria-label="Scheduled events"></div>
+    </section>
+
+  </div>
+
+  <!-- Export -->
+  <div class="export-section">
+    <button id="export-btn" type="button" disabled aria-describedby="export-empty-msg">
+      Download .ics
+    </button>
+    <p id="export-empty-msg">Select at least one activity to enable export.</p>
+  </div>
+
+  <footer class="app-footer">
+    <p>
+      <strong>Import your .ics:</strong>
+      Google Calendar → Settings → Import &amp; Export → Import &nbsp;·&nbsp;
+      Apple Calendar → File → Import &nbsp;·&nbsp;
+      Outlook → File → Open &amp; Export → Import/Export
+    </p>
+  </footer>
+
+</div><!-- /.page-wrapper -->
+
+</body>
+</html>
