@@ -2218,6 +2218,9 @@
                         ${row('type', sel('ef-cap-type', [['', '—'], ['tool', 'tool'], ['technique', 'technique'], ['malware', 'malware'], ['exploit', 'exploit'], ['vulnerability', 'vulnerability']], v.type || ''))}
                         ${row('version', inp('ef-cap-version', v.version))}
                         <span class="form-label top">description</span><div>${ta('ef-cap-desc', v.description, 3)}</div>
+                        ${row('sha256', inp('ef-cap-sha256', v.hash?.sha256, '64-char hex'))}
+                        ${row('sha1', inp('ef-cap-sha1', v.hash?.sha1, '40-char hex'))}
+                        ${row('md5', inp('ef-cap-md5', v.hash?.md5, '32-char hex'))}
                         ${row('att&amp;ck', inp('ef-cap-mitre', (v.mitre_attack || []).join(', '), 'T1566.001, T1204'))}
                         ${row('sigma', inp('ef-cap-sigma', (v.sigma_rules || []).join(', ')))}
                         ${row('conf', rng('ef-cap-conf', v.confidence))}
@@ -2308,6 +2311,17 @@
                 v.type = gv('ef-cap-type') || undefined;
                 v.version = tv('ef-cap-version') || undefined;
                 v.description = tv('ef-cap-desc') || undefined;
+                const sha256 = tv('ef-cap-sha256');
+                const sha1   = tv('ef-cap-sha1');
+                const md5    = tv('ef-cap-md5');
+                if (sha256 || sha1 || md5) {
+                    v.hash = { ...(v.hash || {}) };
+                    if (sha256) v.hash.sha256 = sha256; else delete v.hash?.sha256;
+                    if (sha1)   v.hash.sha1   = sha1;   else delete v.hash?.sha1;
+                    if (md5)    v.hash.md5    = md5;    else delete v.hash?.md5;
+                } else {
+                    v.hash = undefined;
+                }
                 const mitre = tv('ef-cap-mitre');
                 v.mitre_attack = mitre ? mitre.split(',').map(s => s.trim()).filter(Boolean) : undefined;
                 const sigma = tv('ef-cap-sigma');
