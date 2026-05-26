@@ -622,10 +622,7 @@ function onCanvasMD(e) {
   if (e.button !== 0) return;
   if (S.tool === 'select') { sel(null); render(); return; }
   if (S.tool === 'connect') { S.connecting = null; setStatus('Connect: click a source node'); return; }
-  saveHistory();
-  const pt = svgPt(e);
-  const isText = S.tool === 'text';
-  addNode(S.tool, pt.x - (isText?40:DN.w/2), pt.y - (isText?15:DN.h/2));
+  // shape tools: creation requires double-click, not single-click
 }
 
 function onCanvasMM(e) {
@@ -721,10 +718,12 @@ function onCanvasMU(e) {
 }
 
 function onCanvasDbl(e) {
-  if (S.tool !== 'select') return;
+  if (S.tool === 'connect') return;
   saveHistory();
   const pt = svgPt(e);
-  addNode('rounded', pt.x - DN.w/2, pt.y - DN.h/2);
+  const shape = S.tool === 'select' ? 'rounded' : S.tool;
+  const isText = shape === 'text';
+  addNode(shape, pt.x - (isText?40:DN.w/2), pt.y - (isText?15:DN.h/2));
 }
 
 function onWheel(e) {
@@ -939,11 +938,11 @@ function setTool(t) {
   updatePanCursor();
   const msgs = {
     select:  'Click to select · Drag to move · Double-click to edit · Tab = child branch · Enter = sibling branch · Dbl-click canvas = new node',
-    rect:    'Click canvas to place a rectangle',
-    rounded: 'Click canvas to place a rounded rectangle',
-    ellipse: 'Click canvas to place an ellipse',
-    diamond: 'Click canvas to place a diamond',
-    text:    'Click canvas to place a text label',
+    rect:    'Double-click canvas to place a rectangle',
+    rounded: 'Double-click canvas to place a rounded rectangle',
+    ellipse: 'Double-click canvas to place an ellipse',
+    diamond: 'Double-click canvas to place a diamond',
+    text:    'Double-click canvas to place a text label',
     connect: 'Click a source node, then click the target node',
   };
   setStatus(msgs[t] || '');
