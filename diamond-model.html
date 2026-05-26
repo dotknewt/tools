@@ -1446,6 +1446,18 @@
             { id: 'unknown', label: 'unknown' }
         ];
 
+        const SKELETON = {
+            event_id: '',
+            timestamp: { start: '' },
+            phase: 'unknown',
+            result: 'unknown',
+            confidence: 0.5,
+            adversary: { confidence: 0.5 },
+            capability: { confidence: 0.5 },
+            infrastructure: { confidence: 0.5 },
+            victim: { confidence: 0.5 }
+        };
+
         let currentEvents = [];
         let currentIndex = 0;
         let selectedVertex = 'adversary';
@@ -1920,7 +1932,15 @@
         }
 
         $$('#diamondSvg .vertex').forEach(g => {
-            g.addEventListener('click', () => selectVertex(g.dataset.vertex));
+            g.addEventListener('click', () => {
+                // Auto-enter edit mode on vertex click so the form opens without a separate toggle
+                if (currentEvents.length && !editMode) {
+                    editMode = true;
+                    $('#editModeBtn').classList.add('active');
+                    $('#editModeBtn').textContent = 'View mode';
+                }
+                selectVertex(g.dataset.vertex);
+            });
         });
 
         $('#loadExample').addEventListener('click', () => {
@@ -1943,28 +1963,25 @@
         $('#exportSvg').addEventListener('click', exportSvg);
 
         $('#clearBtn').addEventListener('click', () => {
-            $('#jsonInput').value = '';
-            setStatus('awaiting input');
-            showError(null);
             currentEvents = [];
             currentIndex = 0;
-            editMode = false;
-            $('#editToolbar').style.display = 'none';
-            $('#editModeBtn').classList.remove('active');
-            $('#editModeBtn').textContent = 'Edit mode';
-            $('#eventBanner').style.display = 'none';
-            $('#killChain').style.display = 'none';
-            $('#metaRow').innerHTML = '';
-            $('#detail').innerHTML = `
-    <div class="empty-state">
-      Click a vertex to inspect its properties
-      <div class="hint">↑ adversary · → capability · ↓ victim · ← infrastructure · PgUp/PgDn cycle events</div>
-    </div>`;
+            showError(null);
             for (const meta of Object.values(VERTEX_META)) {
                 document.getElementById(meta.summaryEl).textContent = '—';
                 document.getElementById(meta.confEl).textContent = 'conf —';
             }
             $$('#diamondSvg .vertex').forEach(g => g.classList.remove('selected'));
+
+            // Keep skeleton in sidebar so the user can fill it in directly
+            $('#jsonInput').value = JSON.stringify(SKELETON, null, 2);
+
+            // Enter edit mode before rendering so vertex clicks open the form immediately
+            editMode = true;
+            $('#editModeBtn').classList.add('active');
+            $('#editModeBtn').textContent = 'View mode';
+
+            tryRender();
+            toast('Cleared · click a vertex on the diamond to fill it in');
         });
 
         $('#renderBtn').addEventListener('click', tryRender);
