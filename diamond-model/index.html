@@ -995,9 +995,9 @@
         /* ── edit form ─────────────────────────────── */
         .detail-edit-body {
             padding: 16px 18px;
-            display: flex;
-            flex-direction: column;
-            gap: 22px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+            gap: 22px 32px;
             overflow-y: auto;
         }
 
@@ -1014,9 +1014,9 @@
 
         .form-grid {
             display: grid;
-            grid-template-columns: 108px 1fr;
+            grid-template-columns: 100px 1fr;
             row-gap: 6px;
-            column-gap: 12px;
+            column-gap: 14px;
             align-items: center;
         }
 
@@ -1055,8 +1055,9 @@
         .form-select option { background: var(--surface-2); }
 
         .form-textarea {
-            resize: vertical;
-            min-height: 52px;
+            resize: both;
+            min-height: 56px;
+            width: 100%;
         }
 
         .form-range-wrap {
