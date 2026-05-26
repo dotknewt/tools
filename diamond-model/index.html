@@ -2084,7 +2084,7 @@
         $('#nextEvent').addEventListener('click', () => goToEvent(currentIndex + 1));
 
         document.addEventListener('keydown', e => {
-            if (document.activeElement === $('#jsonInput')) return;
+            if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
             const vertexMap = { ArrowUp: 'adversary', ArrowRight: 'capability', ArrowDown: 'victim', ArrowLeft: 'infrastructure' };
             if (vertexMap[e.key] && currentEvents.length) {
                 e.preventDefault();
