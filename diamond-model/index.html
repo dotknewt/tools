@@ -1820,8 +1820,9 @@
         <h4>Network</h4>
         ${v.domains?.length ? `<div class="field"><span class="k">domains</span><span class="v">${tagList(v.domains.map(escapeHtml), 'infrastructure')}</span></div>` : ''}
         ${v.ip_addresses?.length ? `<div class="field"><span class="k">ips</span><span class="v">${tagList(v.ip_addresses.map(escapeHtml), 'infrastructure')}</span></div>` : ''}
+        ${v.ports?.length ? `<div class="field"><span class="k">ports</span><span class="v">${tagList(v.ports.map(escapeHtml), 'infrastructure')}</span></div>` : ''}
         ${v.urls?.length ? `<div class="field"><span class="k">urls</span><span class="v">${v.urls.map(u => `<div>${escapeHtml(u)}</div>`).join('')}</span></div>` : ''}
-        ${!v.domains?.length && !v.ip_addresses?.length && !v.urls?.length ? '<div class="field"><span class="v muted sans">No network indicators</span></div>' : ''}
+        ${!v.domains?.length && !v.ip_addresses?.length && !v.ports?.length && !v.urls?.length ? '<div class="field"><span class="v muted sans">No network indicators</span></div>' : ''}
       </div>
       ${v.certificates?.length ? `
         <div class="field-group">
@@ -2233,6 +2234,7 @@
                         ${row('control', sel('ef-inf-type', [['', '—'], ['adversary_controlled', 'adversary'], ['victim_controlled', 'victim'], ['third_party', 'third-party'], ['unknown', 'unknown']], v.type || ''))}
                         <span class="form-label top">domains</span><div>${ta('ef-inf-domains', (v.domains || []).join('\n'), 3)}</div>
                         ${row('ips', inp('ef-inf-ips', (v.ip_addresses || []).join(', '), '1.2.3.4, 5.6.7.8'))}
+                        ${row('ports', inp('ef-inf-ports', (v.ports || []).join(', '), '443, 8080/tcp, 22/udp'))}
                         <span class="form-label top">urls</span><div>${ta('ef-inf-urls', (v.urls || []).join('\n'), 2)}</div>
                         ${row('asn', inp('ef-inf-asn', v.asn))}
                         <span class="form-label top">notes</span><div>${ta('ef-inf-desc', v.description, 2)}</div>
@@ -2334,6 +2336,8 @@
                 if (domsEl) { const d = domsEl.value.trim(); v.domains = d ? d.split('\n').map(s => s.trim()).filter(Boolean) : undefined; }
                 const ips = tv('ef-inf-ips');
                 v.ip_addresses = ips ? ips.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+                const ports = tv('ef-inf-ports');
+                v.ports = ports ? ports.split(',').map(s => s.trim()).filter(Boolean) : undefined;
                 const urlsEl = document.getElementById('ef-inf-urls');
                 if (urlsEl) { const u = urlsEl.value.trim(); v.urls = u ? u.split('\n').map(s => s.trim()).filter(Boolean) : undefined; }
                 v.asn = tv('ef-inf-asn') || undefined;
