@@ -55,11 +55,15 @@ Full SVG canvas mind-mapping tool. State lives in a single object `S` (`nodes`, 
 ### `name-generator/`
 Codename generator for CTI incident names and threat actor names. Fetches three flat JSON wordlist arrays at startup (`adjectives.json`, `entities.json`, `events.json` from `./wordlists/`). Generation logic is in `buildName()` with exclusion filtering via `isExcluded()`. To extend vocabulary, edit the wordlist JSON files directly — they are flat string arrays.
 
-## Planned tools (TODO.md)
+### `generate-ubuntu-autoinstall/`
+Ubuntu autoinstall.yaml generator. Form-to-YAML tool covering identity, locale, storage layout presets (direct/LVM/ZFS with optional disk targeting), SSH, packages, updates, and late commands. JSON schema reference at `generate-ubuntu-autoinstall/schema/ubuntu-autoinstall.json`. Password field expects a pre-hashed value (`openssl passwd -6`).
 
-The `placeholder-name/` directory is a schema stub — no HTML yet, just the Ubuntu autoinstall JSON schema used as a reference for the planned generator.
+### `generate-debian-preseed/`
+Debian preseed.cfg generator. Produces `d-i key type value` format covering locale, network, mirror, accounts, clock, partitioning (LVM/regular/encrypted), package selection, and bootloader. Opens directly from `file://` — no server needed.
 
-OS automated-install config generators:
-- **Autounattend.xml** for Windows
-- **Preseed.cfg** for Debian (reference: debian.org preseed docs)
-- **Autoinstall.yaml** for Ubuntu — JSON schema already in `placeholder-name/schema/ubuntu-autoinstall.json`
+### `generate-windows-unattend/`
+Windows Autounattend.xml generator. Covers language/locale, disk partitioning (GPT/UEFI or MBR/BIOS), image install, user accounts, OOBE suppression, autologon, and first-logon commands. Produces well-formed XML with `urn:schemas-microsoft-com:unattend` namespace.
+
+## Tool naming convention
+
+Config/file generator tools use the prefix `generate-<name>/` (e.g. `generate-ubuntu-autoinstall/`). Visualizers and interactive tools use a plain descriptive name (e.g. `diamond-model/`, `mind-map/`).

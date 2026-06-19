@@ -218,7 +218,7 @@
                 </div>
                 <div class="brand-text">
                     <h1>Tools Hub</h1>
-                    <div class="sub">analysis · visualization</div>
+                    <div class="sub">analysis · visualization · generators</div>
                 </div>
             </div>
             <div class="header-rule"></div>
@@ -272,19 +272,71 @@
                 <a href="name-generator/" class="card" data-accent="teal">
                     <div class="card-icon">
                         <svg viewBox="0 0 18 18" fill="none">
-                            <path d="M9 1 L17 9 L9 17 L1 9 Z" stroke="#4fd1c5" stroke-width="1.5" />
-                            <circle cx="9"  cy="1"  r="1.4" fill="#ef6b6b" />
-                            <circle cx="17" cy="9"  r="1.4" fill="#b794f6" />
-                            <circle cx="9"  cy="17" r="1.4" fill="#63b3ed" />
-                            <circle cx="1"  cy="9"  r="1.4" fill="#4fd1c5" />
+                            <rect x="2" y="3" width="14" height="2.5" rx="1" fill="#4fd1c5" opacity=".9"/>
+                            <rect x="2" y="7.5" width="9" height="2.5" rx="1" fill="#4fd1c5" opacity=".6"/>
+                            <rect x="2" y="12" width="11" height="2.5" rx="1" fill="#4fd1c5" opacity=".4"/>
                         </svg>
                     </div>
                     <div class="card-title">Name Generator</div>
-                    <div class="card-desc">Generate word combinations from fictional characters and fantasy lore.</div>
+                    <div class="card-desc">Generate codenames for CTI incidents and threat actors from curated wordlists.</div>
                     <div class="card-tags">
                         <span class="tag">cti</span>
-                        <span class="tag">visualization</span>
-                        <span class="tag">export</span>
+                        <span class="tag">codenames</span>
+                        <span class="tag">generator</span>
+                    </div>
+                </a>
+
+                <a href="generate-ubuntu-autoinstall/" class="card" data-accent="amber">
+                    <div class="card-icon">
+                        <svg viewBox="0 0 18 18" fill="none">
+                            <circle cx="9" cy="9" r="7" stroke="#f6ad55" stroke-width="1.4"/>
+                            <circle cx="9" cy="9" r="3" fill="#f6ad55" opacity=".3"/>
+                            <line x1="9" y1="2" x2="9" y2="5" stroke="#f6ad55" stroke-width="1.4"/>
+                            <line x1="9" y1="13" x2="9" y2="16" stroke="#f6ad55" stroke-width="1.4"/>
+                            <line x1="2" y1="9" x2="5" y2="9" stroke="#f6ad55" stroke-width="1.4"/>
+                            <line x1="13" y1="9" x2="16" y2="9" stroke="#f6ad55" stroke-width="1.4"/>
+                        </svg>
+                    </div>
+                    <div class="card-title">Ubuntu Autoinstall</div>
+                    <div class="card-desc">Generate autoinstall.yaml for unattended Ubuntu server installations. Covers identity, storage, SSH, and packages.</div>
+                    <div class="card-tags">
+                        <span class="tag">ubuntu</span>
+                        <span class="tag">autoinstall</span>
+                        <span class="tag">yaml</span>
+                    </div>
+                </a>
+
+                <a href="generate-debian-preseed/" class="card" data-accent="purple">
+                    <div class="card-icon">
+                        <svg viewBox="0 0 18 18" fill="none">
+                            <path d="M9 2 C5.13 2 2 5.13 2 9 C2 12.87 5.13 16 9 16 C12.87 16 16 12.87 16 9 C16 5.13 12.87 2 9 2 Z" stroke="#b794f6" stroke-width="1.4" fill="none"/>
+                            <path d="M9 5 C9 5 12 7 12 9 C12 11 10.5 12.5 9 13 C7.5 12.5 6 11 6 9 C6 7 9 5 9 5 Z" fill="#b794f6" opacity=".35"/>
+                        </svg>
+                    </div>
+                    <div class="card-title">Debian Preseed</div>
+                    <div class="card-desc">Generate preseed.cfg for fully automated Debian installations. Covers locale, partitioning, accounts, and packages.</div>
+                    <div class="card-tags">
+                        <span class="tag">debian</span>
+                        <span class="tag">preseed</span>
+                        <span class="tag">cfg</span>
+                    </div>
+                </a>
+
+                <a href="generate-windows-unattend/" class="card" data-accent="teal">
+                    <div class="card-icon">
+                        <svg viewBox="0 0 18 18" fill="none">
+                            <rect x="2" y="2" width="6.5" height="6.5" rx="1" fill="#4fd1c5" opacity=".8"/>
+                            <rect x="9.5" y="2" width="6.5" height="6.5" rx="1" fill="#4fd1c5" opacity=".5"/>
+                            <rect x="2" y="9.5" width="6.5" height="6.5" rx="1" fill="#4fd1c5" opacity=".5"/>
+                            <rect x="9.5" y="9.5" width="6.5" height="6.5" rx="1" fill="#4fd1c5" opacity=".8"/>
+                        </svg>
+                    </div>
+                    <div class="card-title">Windows Autounattend</div>
+                    <div class="card-desc">Generate Autounattend.xml for silent Windows installations. Covers disk layout, locale, user accounts, and OOBE.</div>
+                    <div class="card-tags">
+                        <span class="tag">windows</span>
+                        <span class="tag">autounattend</span>
+                        <span class="tag">xml</span>
                     </div>
                 </a>
 
