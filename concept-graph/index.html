@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Concept Graph</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        :root {
+            --bg: #0d0f14;
+            --surface: #14171f;
+            --surface-2: #1c2030;
+            --surface-3: #252a3d;
+            --border: rgba(255, 255, 255, 0.07);
+            --border-strong: rgba(255, 255, 255, 0.14);
+            --text: #e8eaf0;
+            --text-muted: #9298a8;
+            --text-dim: #5c6275;
+            --amber: #f6ad55;
+            --accent: #4fd1c5;
+            --accent-dim: rgba(79, 209, 197, 0.12);
+            --accent-border: rgba(79, 209, 197, 0.30);
+            --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            --radius-sm: 4px;
+            --radius-md: 6px;
+            --radius-lg: 10px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 14px;
+            line-height: 1.55;
+            min-height: 100vh;
+        }
+
+        .header {
+            border-bottom: 1px solid var(--border);
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--surface);
+        }
+
+        .back {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            text-decoration: none;
+            letter-spacing: 0.05em;
+            transition: color 0.15s;
+        }
+        .back:hover { color: var(--accent); }
+
+        .sep { color: var(--text-dim); }
+
+        .header-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .header-badge {
+            margin-left: auto;
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--accent);
+            background: var(--accent-dim);
+            border: 1px solid var(--accent-border);
+            border-radius: var(--radius-sm);
+            padding: 2px 7px;
+            letter-spacing: 0.06em;
+        }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: 420px 1fr;
+            height: calc(100vh - 49px);
+        }
+
+        @media (max-width: 860px) {
+            .workspace { grid-template-columns: 1fr; height: auto; }
+            .output-panel { min-height: 480px; border-top: 1px solid var(--border); border-left: none; }
+        }
+
+        .form-panel {
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .err-bar {
+            display: none;
+            padding: 8px 14px;
+            background: rgba(246, 173, 85, 0.08);
+            border-bottom: 1px solid rgba(246, 173, 85, 0.3);
+            color: var(--amber);
+            font-family: var(--font-mono);
+            font-size: 11px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .err-bar.show { display: block; }
+
+        #dsl-in {
+            flex: 1;
+            resize: none;
+            border: none;
+            outline: none;
+            background: transparent;
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 12.5px;
+            line-height: 1.7;
+            padding: 16px 18px;
+        }
+
+        .output-panel {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .out-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+            flex-shrink: 0;
+        }
+
+        .tabs { display: flex; gap: 4px; flex: 1; }
+
+        .tab {
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: var(--radius-sm);
+            color: var(--text-dim);
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            padding: 6px 11px;
+            cursor: pointer;
+            transition: color 0.15s, background 0.15s, border-color 0.15s;
+        }
+        .tab:hover { color: var(--text); }
+        .tab.active { color: var(--accent); background: var(--accent-dim); border-color: var(--accent-border); }
+
+        .out-btn {
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            padding: 4px 9px;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s, background 0.15s;
+        }
+        .out-btn:hover { color: var(--text); border-color: var(--border-strong); }
+        .out-btn.flash { color: var(--accent); border-color: var(--accent-border); background: var(--accent-dim); }
+
+        .out-body { flex: 1; position: relative; overflow: hidden; }
+
+        .out-pane { position: absolute; inset: 0; overflow: auto; }
+        .out-pane.hidden { display: none; }
+
+        pre.out-pane {
+            padding: 18px 20px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            line-height: 1.6;
+            color: var(--text);
+            white-space: pre;
+        }
+
+        #out-preview { padding: 24px; text-align: center; }
+        #out-preview svg { max-width: 100%; height: auto; }
+        #out-preview .ph { color: var(--text-dim); font-style: italic; font-family: var(--font-sans); font-size: 13px; }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <a href="../" class="back">← hub</a>
+        <span class="sep">/</span>
+        <span class="header-title">Concept Graph</span>
+        <span class="header-badge">Live</span>
+    </header>
+
+    <div class="workspace">
+        <div class="form-panel">
+            <div class="err-bar" id="err-bar"></div>
+            <textarea id="dsl-in" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off"></textarea>
+        </div>
+
+        <div class="output-panel">
+            <div class="out-header">
+                <div class="tabs">
+                    <button class="tab active" data-tab="preview">Preview</button>
+                    <button class="tab" data-tab="mermaid">Mermaid</button>
+                    <button class="tab" data-tab="ascii">ASCII</button>
+                    <button class="tab" data-tab="json">JSON</button>
+                </div>
+                <button class="out-btn" id="copy-btn" onclick="copyActive()">Copy</button>
+                <button class="out-btn" onclick="downloadActive()">Download</button>
+            </div>
+            <div class="out-body">
+                <div id="out-preview" class="out-pane"></div>
+                <pre id="out-mermaid" class="out-pane hidden"></pre>
+                <pre id="out-ascii" class="out-pane hidden"></pre>
+                <pre id="out-json" class="out-pane hidden"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ═══════════════════════════════════════════════════════════════
+        //  UTILITIES
+        // ═══════════════════════════════════════════════════════════════
+        function g(id) { return document.getElementById(id); }
+
+        function debounce(fn, ms) {
+            let t;
+            return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+        }
+
+        function dl(name, text, mime) {
+            const blob = new Blob([text], { type: mime });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = name;
+            a.click();
+            URL.revokeObjectURL(a.href);
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  DSL GRAMMAR
+        // ═══════════════════════════════════════════════════════════════
+        const RELATIONS = {
+            '->':          { kind: 'flow',  swap: false },
+            '-->':         { kind: 'flow',  swap: false },
+            'emits':       { kind: 'event', swap: false },
+            'consumes':    { kind: 'event', swap: true  },
+            'subscribes':  { kind: 'event', swap: true  },
+            'blocks':      { kind: 'dep',   swap: false },
+            'blocked-by':  { kind: 'dep',   swap: true  },
+            'blocked_by':  { kind: 'dep',   swap: true  },
+            'depends-on':  { kind: 'dep',   swap: true  },
+            'depends_on':  { kind: 'dep',   swap: true  },
+        };
+
+        const NODE_SHAPE = {
+            service:   { open: '[',  close: ']'  },
+            store:     { open: '[(', close: ')]' },
+            event:     { open: '((', close: '))' },
+            task:      { open: '[',  close: ']'  },
+            actor:     { open: '((', close: '))' },
+            component: { open: '[',  close: ']'  },
+        };
+
+        const ARROW = { flow: '↓', event: '⇣', dep: '⇓' };
+        const HLINE = { flow: '─', event: '╌', dep: '━' };
+
+        function validId(s) { return !!s && !/[\[\]:>\s]/.test(s); }
+
+        function truncateLabel(s) {
+            if (!s) return s;
+            return s.length > 30 ? s.slice(0, 29) + '…' : s;
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  PARSER
+        // ═══════════════════════════════════════════════════════════════
+        function stripComment(line) {
+            let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+                const c = line[i];
+                if (c === '"') inQuotes = !inQuotes;
+                if (c === '#' && !inQuotes && (i === 0 || /\s/.test(line[i - 1]))) {
+                    return line.slice(0, i);
+                }
+            }
+            return line;
+        }
+
+        function splitLabel(line) {
+            let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+                const c = line[i];
+                if (c === '"') inQuotes = !inQuotes;
+                if (c === ':' && !inQuotes && i > 0 && /\s/.test(line[i - 1])) {
+                    const head = line.slice(0, i).trim();
+                    let label = line.slice(i + 1).trim();
+                    if (label.length >= 2 && label.startsWith('"') && label.endsWith('"')) {
+                        label = label.slice(1, -1);
+                    }
+                    return [head, label || null];
+                }
+            }
+            return [line.trim(), null];
+        }
+
+        function parseKindTag(head) {
+            const m = head.match(/^(\S+)\s*\[([^\]]*)\]\s*$/);
+            if (m) {
+                const kind = m[2].trim();
+                if (kind === '' || /\s/.test(kind)) return { error: true };
+                return { id: m[1], kind };
+            }
+            if (head.includes('[') || head.includes(']')) return { error: true };
+            if (!/\s/.test(head)) return { id: head, kind: null };
+            return null;
+        }
+
+        function upsertNode(model, id, kind, label, lineNo) {
+            if (!validId(id)) {
+                model.errors.push(`line ${lineNo}: invalid identifier '${id}'`);
+                return;
+            }
+            const existing = model.nodes.get(id);
+            if (existing) {
+                if (existing.explicit) {
+                    model.errors.push(`line ${lineNo}: duplicate declaration of '${id}'`);
+                    return;
+                }
+                existing.kind = kind || existing.kind;
+                existing.label = label != null ? label : existing.label;
+                existing.explicit = true;
+                return;
+            }
+            model.nodes.set(id, { id, kind: kind || 'component', label: label || null, line: lineNo, explicit: true });
+        }
+
+        function ensureImplicit(model, id, lineNo) {
+            if (!validId(id)) {
+                model.errors.push(`line ${lineNo}: invalid identifier '${id}'`);
+                return false;
+            }
+            if (!model.nodes.has(id)) {
+                model.nodes.set(id, { id, kind: 'component', label: null, line: lineNo, explicit: false });
+            }
+            return true;
+        }
+
+        function parseLine(rawLine, lineNo, model) {
+            const stripped = stripComment(rawLine);
+            if (!stripped.trim()) return;
+
+            const [head, label] = splitLabel(stripped);
+            if (!head) { model.errors.push(`line ${lineNo}: empty statement`); return; }
+
+            const tag = parseKindTag(head);
+            if (tag && tag.error) {
+                model.errors.push(`line ${lineNo}: invalid kind — no whitespace allowed inside [ ]`);
+                return;
+            }
+            if (tag) {
+                upsertNode(model, tag.id, tag.kind, label, lineNo);
+                return;
+            }
+
+            const tokens = head.split(/\s+/).filter(Boolean);
+            if (tokens.length !== 3) {
+                model.errors.push(`line ${lineNo}: could not parse — expected 'id [kind]' or 'id RELATION id'`);
+                return;
+            }
+            const rel = RELATIONS[tokens[1].toLowerCase()];
+            if (!rel) { model.errors.push(`line ${lineNo}: unknown relation '${tokens[1]}'`); return; }
+
+            const okFrom = ensureImplicit(model, tokens[0], lineNo);
+            const okTo = ensureImplicit(model, tokens[2], lineNo);
+            if (!okFrom || !okTo) return;
+
+            let from = tokens[0], to = tokens[2];
+            if (rel.swap) [from, to] = [to, from];
+            let edgeLabel = label || null;
+            if (rel.kind === 'event' && !edgeLabel) edgeLabel = tokens[1].toLowerCase();
+
+            model.edges.push({ id: 'e' + model.edges.length, from, to, kind: rel.kind, label: edgeLabel, line: lineNo });
+        }
+
+        function parse(text) {
+            const model = { nodes: new Map(), edges: [], errors: [] };
+            text.split('\n').forEach((raw, i) => parseLine(raw, i + 1, model));
+            return model;
+        }
+
+        function buildGraph(model) {
+            const nodes = [...model.nodes.values()].sort((a, b) => a.line - b.line);
+            return { nodes, edges: model.edges.slice(), errors: model.errors };
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  MODEL HELPERS
+        // ═══════════════════════════════════════════════════════════════
+        function nodeById(comp, id) { return comp.nodes.find(n => n.id === id); }
+
+        function components(graph) {
+            const parent = new Map();
+            const find = x => { while (parent.get(x) !== x) x = parent.get(x); return x; };
+            const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); };
+            graph.nodes.forEach(n => parent.set(n.id, n.id));
+            graph.edges.forEach(e => { if (parent.has(e.from) && parent.has(e.to)) union(e.from, e.to); });
+
+            const groups = new Map();
+            graph.nodes.forEach(n => {
+                const r = find(n.id);
+                if (!groups.has(r)) groups.set(r, { nodes: [], edges: [] });
+                groups.get(r).nodes.push(n);
+            });
+            graph.edges.forEach(e => {
+                const r = find(e.from);
+                if (groups.has(r)) groups.get(r).edges.push(e);
+            });
+
+            return [...groups.values()]
+                .map(c => ({ ...c, minLine: Math.min(...c.nodes.map(n => n.line)) }))
+                .sort((a, b) => a.minLine - b.minLine);
+        }
+
+        function topoRank(comp) {
+            const ids = comp.nodes.map(n => n.id);
+            const backEdges = [];
+            let edges = comp.edges.slice();
+            let remaining = new Set(ids);
+            const rankOf = new Map();
+            let round = 0;
+
+            while (remaining.size > 0) {
+                const indeg = new Map([...remaining].map(id => [id, 0]));
+                edges.forEach(e => {
+                    if (remaining.has(e.from) && remaining.has(e.to)) indeg.set(e.to, indeg.get(e.to) + 1);
+                });
+                let zero = [...remaining].filter(id => indeg.get(id) === 0);
+
+                if (zero.length === 0) {
+                    const inScope = edges.filter(e => remaining.has(e.from) && remaining.has(e.to));
+                    inScope.sort((a, b) => {
+                        const ra = rankOf.has(a.from) ? rankOf.get(a.from) : round;
+                        const rb = rankOf.has(b.from) ? rankOf.get(b.from) : round;
+                        if (ra !== rb) return rb - ra;
+                        return nodeById(comp, b.from).line - nodeById(comp, a.from).line;
+                    });
+                    const cut = inScope[0];
+                    backEdges.push(cut);
+                    edges = edges.filter(e => e !== cut);
+                    continue;
+                }
+
+                zero.sort((a, b) => nodeById(comp, a).line - nodeById(comp, b).line);
+                zero.forEach(id => { rankOf.set(id, round); remaining.delete(id); });
+                round++;
+            }
+
+            return { rankOf, backEdges };
+        }
+
+        function orderInRank(comp, rankOf) {
+            const byRank = new Map();
+            comp.nodes.forEach(n => {
+                const r = rankOf.get(n.id);
+                if (!byRank.has(r)) byRank.set(r, []);
+                byRank.get(r).push(n);
+            });
+            byRank.forEach(list => list.sort((a, b) => a.line - b.line));
+            return byRank;
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  ASCII RENDERER
+        // ═══════════════════════════════════════════════════════════════
+        function boxDims(node) {
+            const kindText = node.kind || 'component';
+            const w = Math.max(node.id.length, kindText.length) + 4;
+            const isStore = kindText === 'store';
+            const h = isStore ? 5 : 4;
+            return { w, h, isStore, kindText };
+        }
+
+        function centerText(s, width) {
+            if (s.length >= width) return s.slice(0, width);
+            const left = Math.floor((width - s.length) / 2);
+            const right = width - s.length - left;
+            return ' '.repeat(left) + s + ' '.repeat(right);
+        }
+
+        function plotChar(grid, x, y, ch) {
+            if (!grid.has(y)) grid.set(y, new Map());
+            grid.get(y).set(x, ch);
+        }
+        function plotText(grid, x, y, text) {
+            for (let i = 0; i < text.length; i++) plotChar(grid, x + i, y, text[i]);
+        }
+        function plotIfEmpty(grid, x, y, ch) {
+            if (!grid.has(y)) grid.set(y, new Map());
+            const row = grid.get(y);
+            if (!row.has(x)) row.set(x, ch);
+        }
+
+        function serializeGrid(grid) {
+            if (grid.size === 0) return '';
+            const maxY = Math.max(...grid.keys());
+            const lines = [];
+            for (let y = 0; y <= maxY; y++) {
+                const row = grid.get(y);
+                if (!row) { lines.push(''); continue; }
+                const maxX = Math.max(...row.keys());
+                let line = '';
+                for (let x = 0; x <= maxX; x++) line += row.get(x) || ' ';
+                lines.push(line.replace(/\s+$/, ''));
+            }
+            return lines.join('\n');
+        }
+
+        function drawBox(grid, x, y, node) {
+            const { w, h, isStore, kindText } = boxDims(node);
+            plotText(grid, x, y, '╭' + '─'.repeat(w - 2) + '╮');
+            plotText(grid, x, y + 1, '│' + centerText(node.id, w - 2) + '│');
+            plotText(grid, x, y + 2, '│' + centerText(kindText, w - 2) + '│');
+            if (isStore) {
+                plotText(grid, x, y + 3, '│' + centerText('≡'.repeat(Math.min(w - 2, 6)), w - 2) + '│');
+                plotText(grid, x, y + 4, '╰' + '─'.repeat(w - 2) + '╯');
+            } else {
+                plotText(grid, x, y + 3, '╰' + '─'.repeat(w - 2) + '╯');
+            }
+            return { x, y, w, h, cx: x + Math.floor(w / 2) };
+        }
+
+        function spreadSlots(n, loX, hiX) {
+            if (n <= 1) return [Math.round((loX + hiX) / 2)];
+            const step = (hiX - loX) / (n + 1);
+            const slots = [];
+            for (let i = 1; i <= n; i++) slots.push(Math.round(loX + step * i));
+            return slots;
+        }
+
+        function assignEdgeColumns(comp, boxes, backSet) {
+            const departureX = new Map(), arrivalX = new Map();
+            const byNode = new Map();
+            comp.nodes.forEach(n => byNode.set(n.id, { out: [], in: [] }));
+            comp.edges.forEach(e => {
+                if (backSet.has(e)) return;
+                if (byNode.has(e.from)) byNode.get(e.from).out.push(e);
+                if (byNode.has(e.to)) byNode.get(e.to).in.push(e);
+            });
+
+            byNode.forEach((lists, nodeId) => {
+                const box = boxes.get(nodeId);
+                if (!box) return;
+                const loX = box.x + 1, hiX = box.x + box.w - 2;
+
+                if (lists.out.length) {
+                    const outs = lists.out.slice().sort((a, b) => {
+                        const ba = boxes.get(a.to), bb = boxes.get(b.to);
+                        return (ba ? ba.cx : 0) - (bb ? bb.cx : 0);
+                    });
+                    spreadSlots(outs.length, loX, hiX).forEach((x, i) => departureX.set(outs[i].id, x));
+                }
+                if (lists.in.length) {
+                    const ins = lists.in.slice().sort((a, b) => {
+                        const ba = boxes.get(a.from), bb = boxes.get(b.from);
+                        return (ba ? ba.cx : 0) - (bb ? bb.cx : 0);
+                    });
+                    spreadSlots(ins.length, loX, hiX).forEach((x, i) => arrivalX.set(ins[i].id, x));
+                }
+            });
+
+            return { departureX, arrivalX };
+        }
+
+        function drawEdge(grid, edge, boxes, fromX, toX) {
+            const src = boxes.get(edge.from), dst = boxes.get(edge.to);
+            if (!src || !dst) return;
+            const fromY = src.bottomY;
+            const toY = dst.y - 1;
+            if (toY < fromY) return;
+            const arrow = ARROW[edge.kind] || '↓';
+            const hline = HLINE[edge.kind] || '─';
+
+            if (fromX === toX) {
+                for (let y = fromY; y < toY; y++) plotIfEmpty(grid, fromX, y, '│');
+                plotChar(grid, toX, toY, arrow);
+            } else {
+                const jogY = fromY;
+                const diag = toX > fromX ? '╲' : '╱';
+                plotIfEmpty(grid, fromX, jogY, diag);
+                const lo = Math.min(fromX, toX) + 1, hi = Math.max(fromX, toX) - 1;
+                for (let x = lo; x <= hi; x++) plotIfEmpty(grid, x, jogY, hline);
+                for (let y = jogY + 1; y < toY; y++) plotIfEmpty(grid, toX, y, '│');
+                plotChar(grid, toX, toY, arrow);
+            }
+
+            if (edge.label) plotText(grid, toX + 2, toY, truncateLabel(edge.label));
+        }
+
+        function renderComponent(comp) {
+            const { rankOf, backEdges } = topoRank(comp);
+            const grid = new Map();
+            const order = orderInRank(comp, rankOf);
+            const ranks = [...order.keys()].sort((a, b) => a - b);
+            const boxes = new Map();
+            const gutter = 4, channelH = 2;
+            let y = 0;
+
+            ranks.forEach(r => {
+                const nodesInRank = order.get(r);
+                let x = 0;
+                const maxH = Math.max(...nodesInRank.map(n => boxDims(n).h));
+                nodesInRank.forEach(n => {
+                    const box = drawBox(grid, x, y, n);
+                    box.bottomY = y + maxH;
+                    boxes.set(n.id, box);
+                    x += box.w + gutter;
+                });
+                y += maxH + channelH;
+            });
+
+            const backSet = new Set(backEdges);
+            const { departureX, arrivalX } = assignEdgeColumns(comp, boxes, backSet);
+            comp.edges.filter(e => !backSet.has(e))
+                .forEach(e => drawEdge(grid, e, boxes, departureX.get(e.id), arrivalX.get(e.id)));
+
+            let out = serializeGrid(grid);
+
+            if (backEdges.length) {
+                const kindWord = { flow: 'flow', event: 'event', dep: 'blocks' };
+                const lines = backEdges.map(e => {
+                    let s = `↺ ${e.from} → ${e.to} : ${kindWord[e.kind] || e.kind}`;
+                    if (e.label) s += ` — ${truncateLabel(e.label)}`;
+                    return s;
+                });
+                out += '\n\n' + lines.join('\n');
+            }
+            return out;
+        }
+
+        function toAscii(graph) {
+            if (graph.nodes.length === 0) return '(empty graph — add a node or edge above)';
+            if (graph.nodes.length > 40) {
+                return `# Graph too large for ASCII (${graph.nodes.length} nodes). Use the Mermaid tab.`;
+            }
+            const comps = components(graph);
+            const sep = '\n\n' + '┈'.repeat(50) + '\n\n';
+            return comps.map(renderComponent).join(sep);
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  MERMAID RENDERER
+        // ═══════════════════════════════════════════════════════════════
+        function mermaidEscape(s) {
+            return String(s).replace(/&/g, '#amp;').replace(/"/g, '#quot;').replace(/</g, '#lt;').replace(/>/g, '#gt;');
+        }
+
+        function mermaidId(id) {
+            return 'n_' + id.replace(/[^A-Za-z0-9_]/g, '_');
+        }
+
+        function nodeShapeWrap(node) {
+            const shape = NODE_SHAPE[node.kind] || NODE_SHAPE.component;
+            const label = mermaidEscape(node.label || node.id);
+            return `${mermaidId(node.id)}${shape.open}"${label}"${shape.close}`;
+        }
+
+        function toMermaidBody(graph) {
+            const lines = ['flowchart TD'];
+            graph.nodes.forEach(n => lines.push('  ' + nodeShapeWrap(n)));
+            graph.edges.forEach(e => {
+                const arrow = { flow: '-->', event: '-.->', dep: '==>' }[e.kind] || '-->';
+                const mid = e.label ? `${arrow}|${mermaidEscape(e.label)}|` : arrow;
+                lines.push(`  ${mermaidId(e.from)} ${mid} ${mermaidId(e.to)}`);
+            });
+            return lines.join('\n');
+        }
+
+        function toMermaid(graph) {
+            return '```mermaid\n' + toMermaidBody(graph) + '\n```';
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  JSON RENDERER
+        // ═══════════════════════════════════════════════════════════════
+        function toJson(graph) {
+            const canonical = {
+                nodes: graph.nodes.map(n => ({ id: n.id, kind: n.kind, label: n.label, line: n.line })),
+                edges: graph.edges.map(e => ({ id: e.id, from: e.from, to: e.to, kind: e.kind, label: e.label, line: e.line })),
+            };
+            return JSON.stringify(canonical, null, 2);
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  UI
+        // ═══════════════════════════════════════════════════════════════
+        let activeTab = 'preview';
+        let renderSeq = 0;
+        let lastGood = { nodes: [], edges: [], errors: [] };
+
+        function showErrors(errors) {
+            const bar = g('err-bar');
+            if (!errors.length) { bar.classList.remove('show'); bar.textContent = ''; return; }
+            bar.textContent = errors.join('  ·  ');
+            bar.classList.add('show');
+        }
+
+        function switchTab(name) {
+            activeTab = name;
+            document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+            document.querySelectorAll('.out-pane').forEach(p => p.classList.toggle('hidden', p.id !== 'out-' + name));
+        }
+
+        function activeText() {
+            if (activeTab === 'preview') {
+                const svg = g('out-preview').querySelector('svg');
+                return svg ? svg.outerHTML : '';
+            }
+            return g('out-' + activeTab).textContent;
+        }
+
+        function flashCopy(btn) {
+            const orig = btn.textContent;
+            btn.textContent = 'Copied!';
+            btn.classList.add('flash');
+            setTimeout(() => { btn.textContent = orig; btn.classList.remove('flash'); }, 1500);
+        }
+
+        function copyActive() {
+            const text = activeText();
+            if (!text) return;
+            navigator.clipboard.writeText(text).then(() => flashCopy(g('copy-btn')));
+        }
+
+        function downloadActive() {
+            const text = activeText();
+            if (!text) return;
+            const ext = { preview: 'svg', mermaid: 'mmd', ascii: 'txt', json: 'json' }[activeTab];
+            const mime = { preview: 'image/svg+xml', mermaid: 'text/plain', ascii: 'text/plain', json: 'application/json' }[activeTab];
+            dl(`concept-graph.${ext}`, text, mime);
+        }
+
+        async function renderPreview(graph) {
+            const mySeq = ++renderSeq;
+            const container = g('out-preview');
+            if (typeof mermaid === 'undefined') {
+                container.innerHTML = '<span class="ph">Mermaid failed to load (offline?) — see the Mermaid tab for the raw diagram code.</span>';
+                return;
+            }
+            if (graph.nodes.length === 0) {
+                container.innerHTML = '<span class="ph">Nothing to preview yet — add a node or edge.</span>';
+                return;
+            }
+            try {
+                const { svg } = await mermaid.render('mmd-' + mySeq, toMermaidBody(graph));
+                if (mySeq !== renderSeq) return;
+                container.innerHTML = svg;
+            } catch (err) {
+                if (mySeq !== renderSeq) return;
+                container.innerHTML = '<span class="ph">Preview error — check the Mermaid tab for the raw output.</span>';
+            }
+        }
+
+        function recompute() {
+            const model = parse(g('dsl-in').value);
+            const graph = buildGraph(model);
+            showErrors(graph.errors);
+
+            const useGraph = graph.nodes.length > 0 ? graph : lastGood;
+            if (graph.nodes.length > 0) lastGood = graph;
+
+            g('out-mermaid').textContent = toMermaid(useGraph);
+            g('out-ascii').textContent = toAscii(useGraph);
+            g('out-json').textContent = toJson(useGraph);
+            renderPreview(useGraph);
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  BOOT
+        // ═══════════════════════════════════════════════════════════════
+        const DEFAULT_DSL = `# Nodes with optional [kind] tag
+api        [service] : "Orders API"
+db         [store]
+worker     [service]
+OrderPlaced [event]
+
+# Data flow
+api -> db : reads/writes
+api -> worker
+
+# Events
+api    emits    OrderPlaced
+worker consumes OrderPlaced
+
+# Task dependencies
+setup blocks deploy
+qa blocked-by deploy
+`;
+
+        function init() {
+            g('dsl-in').value = DEFAULT_DSL;
+            document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+            g('dsl-in').addEventListener('input', debounce(recompute, 250));
+            if (typeof mermaid !== 'undefined') {
+                mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose', fontFamily: "'JetBrains Mono', monospace" });
+            }
+            recompute();
+        }
+
+        init();
+    </script>
+</body>
+</html>
