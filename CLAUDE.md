@@ -64,6 +64,9 @@ Debian preseed.cfg generator. Produces `d-i key type value` format covering loca
 ### `generate-windows-unattend/`
 Windows Autounattend.xml generator. Covers language/locale, disk partitioning (GPT/UEFI or MBR/BIOS), image install, user accounts, OOBE suppression, autologon, and first-logon commands. Produces well-formed XML with `urn:schemas-microsoft-com:unattend` namespace.
 
+### `ioc-extractor/`
+IOC extractor & defanger. Paste any text; it refangs defanged notation (`hxxp`, `[.]`, `[at]`, `[dot]`) then extracts URLs, domains, IPv4/IPv6, emails, MD5/SHA-1/SHA-256, and CVE IDs with regexes (see the `RE` object and `extract()`). Domain false positives are filtered against a built-in TLD allowlist (`TLDS`). Output panels per category with a global defang/refang display toggle; export CSV/JSON. Extraction runs on a 300ms input debounce.
+
 ### `concept-graph/`
 Typed node/edge graph visualizer for data flow, event pub/sub, and task dependencies. Users write a small line-oriented DSL (`id [kind]`, `A -> B`, `A emits X`, `A blocks B`, etc. — grammar lives in the `parse()`/`RELATIONS` section of the source); output re-renders on a 250ms debounce as four tabs: a live SVG **Preview** (via the Mermaid CDN, the only tool in this repo that needs network on first load), **Mermaid** fenced code, raw **ASCII** box-and-arrow art (own layered/Sugiyama-style layout with cycle-breaking), and canonical **JSON**. Parse errors surface non-blocking in a strip above the editor; the ASCII renderer caps at 40 nodes.
 
