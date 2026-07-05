@@ -79,6 +79,18 @@ Cloud-init `user-data` (`#cloud-config`) generator, same form/output UX as the o
 ### `concept-graph/`
 Typed node/edge graph visualizer for data flow, event pub/sub, and task dependencies. Users write a small line-oriented DSL (`id [kind]`, `A -> B`, `A emits X`, `A blocks B`, etc. — grammar lives in the `parse()`/`RELATIONS` section of the source); output re-renders on a 250ms debounce as four tabs: a live SVG **Preview** (via the Mermaid CDN, the only tool in this repo that needs network on first load), **Mermaid** fenced code, raw **ASCII** box-and-arrow art (own layered/Sugiyama-style layout with cycle-breaking), and canonical **JSON**. Parse errors surface non-blocking in a strip above the editor; the ASCII renderer caps at 40 nodes.
 
+### `timestamp-converter/`
+DFIR timestamp converter. Paste any value; auto-detects Unix epoch (s/ms/µs/ns), Windows FILETIME (also LDAP/AD), WebKit/Chrome, or ISO 8601 via a digit-count heuristic bounded to a 1970–2200 sanity window, with "also valid as" chips and a format-override select (Mac Absolute Time is override-only — it collides with Unix seconds). All math on BigInt nanoseconds since the Unix epoch (`FORMATS` table, `parseInput()`, `detectNumeric()`); renders every format live with per-row copy buttons, human UTC/local, and a relative delta.
+
+### `generate-kickstart/`
+RHEL/Fedora/AlmaLinux kickstart (`ks.cfg`) generator, same form/output UX as the other `generate-` tools. Covers install mode/source, network (DHCP or static), rootpw/user (pre-hashed via `openssl passwd -6`, `--iscrypted`), SELinux/firewall/services, partitioning (zerombr, clearpart, ignoredisk, autopart lvm/plain/thinp), `%packages` (environment group + list), and an optional `%post` script.
+
+### `cron-builder/`
+Crontab expression builder/decoder. A main expression input, preset select, and five per-field inputs stay bidirectionally synced (`fromExpr()`/`fromFields()`/`fromPreset()` with a `syncing` guard; expression is source of truth). Parser (`parseField()`/`parseCron()`) supports lists/ranges/steps, Vixie bare `a/n`, month/day names, DOW 7→0, and `@` aliases; keeps un-expanded per-item structure in `elems` for the English renderer (`describe()`) and systemd translator (`toOnCalendar()`), expanded `Set`s for matching. Faithful Vixie day semantics: `(domStar || dowStar) ? AND : OR` off the raw tokens' first char. Next 10 runs computed by day-iteration (1600-day cap → "never fires"); OnCalendar emits two lines when cron's DOM/DOW OR needs splitting.
+
+### `ipv6-subnet-calculator/`
+IPv6 companion to `subnet-calculator/`, same four sections: prefix info (canonical RFC 5952 compressed + expanded forms, address counts as powers of two, special-purpose kind detection from an ordered `KINDS` table), contains check, split into subnets (capped at 1024 rows), and summarize (range merge + BigInt `rangeToCIDRs()`). All math on BigInt 128-bit values; `parseIP()` handles `::` compression and embedded IPv4 tails (`::ffff:192.0.2.1`); bare addresses are treated as /128.
+
 ## Tool naming convention
 
 Config/file generator tools use the prefix `generate-<name>/` (e.g. `generate-ubuntu-autoinstall/`). Visualizers and interactive tools use a plain descriptive name (e.g. `diamond-model/`, `mind-map/`).

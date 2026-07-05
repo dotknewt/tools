@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cron Builder</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0d0f14;
+            --surface: #14171f;
+            --surface-2: #1c2030;
+            --surface-3: #252a3d;
+            --border: rgba(255, 255, 255, 0.07);
+            --border-strong: rgba(255, 255, 255, 0.14);
+            --text: #e8eaf0;
+            --text-muted: #9298a8;
+            --text-dim: #5c6275;
+            --accent: #4fd1c5;
+            --accent-dim: rgba(79, 209, 197, 0.12);
+            --accent-border: rgba(79, 209, 197, 0.30);
+            --red: #ef6b6b;
+            --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            --radius-sm: 4px;
+            --radius-md: 6px;
+            --radius-lg: 10px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 14px;
+            line-height: 1.55;
+            min-height: 100vh;
+        }
+
+        .header {
+            border-bottom: 1px solid var(--border);
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--surface);
+        }
+
+        .back {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            text-decoration: none;
+            letter-spacing: 0.05em;
+            transition: color 0.15s;
+        }
+        .back:hover { color: var(--accent); }
+
+        .sep { color: var(--text-dim); }
+        .header-title { font-size: 14px; font-weight: 600; color: var(--text); }
+
+        .header-badge {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--accent);
+            background: var(--accent-dim);
+            border: 1px solid var(--accent-border);
+            border-radius: var(--radius-sm);
+            padding: 2px 7px;
+            letter-spacing: 0.06em;
+        }
+
+        .header-note {
+            margin-left: auto;
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-dim);
+            letter-spacing: 0.04em;
+        }
+
+        .page {
+            max-width: 760px;
+            margin: 0 auto;
+            padding: 28px 20px 64px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .card {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--surface);
+            overflow: hidden;
+        }
+
+        .card-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 11px 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .card-num {
+            font-family: var(--font-mono);
+            font-size: 9.5px;
+            color: var(--accent);
+            letter-spacing: 0.08em;
+        }
+
+        .card-name { font-size: 13px; font-weight: 600; flex: 1; }
+
+        .card-body {
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .field { display: flex; flex-direction: column; gap: 5px; }
+        .row { display: grid; grid-template-columns: 1fr 220px; gap: 12px; }
+        .row5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+        @media (max-width: 560px) {
+            .row { grid-template-columns: 1fr; }
+            .row5 { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        label {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-muted);
+            letter-spacing: 0.03em;
+        }
+
+        input[type="text"], select {
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-md);
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 12.5px;
+            padding: 8px 11px;
+            outline: none;
+            width: 100%;
+            transition: border-color 0.15s;
+        }
+        input:focus, select:focus { border-color: var(--accent-border); }
+        input.bad { border-color: rgba(239, 107, 107, 0.5); }
+        select option { background: var(--surface-2); }
+
+        .kv {
+            display: grid;
+            grid-template-columns: 150px 1fr;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            overflow: hidden;
+        }
+        .kv > div {
+            padding: 7px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        .kv > div:nth-last-child(-n+2) { border-bottom: none; }
+        .kv .k { color: var(--text-dim); background: var(--surface-2); font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase; display: flex; align-items: center; }
+        .kv .v { color: var(--text); word-break: break-word; }
+
+        .verdict {
+            font-family: var(--font-mono);
+            font-size: 12.5px;
+            padding: 10px 14px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--accent-border);
+            background: var(--accent-dim);
+            color: var(--accent);
+        }
+
+        .mono-out {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            line-height: 1.8;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 10px 14px;
+            max-height: 340px;
+            overflow-y: auto;
+            white-space: pre;
+        }
+        .dim { color: var(--text-dim); }
+
+        .out-tools { display: flex; align-items: center; gap: 8px; }
+        .out-count {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-dim);
+            flex: 1;
+        }
+        .out-count b { color: var(--accent); }
+
+        .btn {
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            padding: 4px 9px;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s, background 0.15s;
+        }
+        .btn:hover { color: var(--text); background: var(--surface-3); }
+        .btn.flash { color: var(--accent); border-color: var(--accent-border); background: var(--accent-dim); }
+
+        .hint { font-size: 10.5px; color: var(--text-dim); font-family: var(--font-mono); line-height: 1.5; }
+        .err { font-size: 11px; color: var(--red); font-family: var(--font-mono); }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <a href="../" class="back">← hub</a>
+        <span class="sep">/</span>
+        <span class="header-title">Cron Builder</span>
+        <span class="header-badge">CRON</span>
+        <span class="header-note">crontab · systemd · client-side</span>
+    </header>
+
+    <div class="page">
+
+        <!-- 01 Expression -->
+        <div class="card">
+            <div class="card-head">
+                <span class="card-num">01</span>
+                <span class="card-name">Expression</span>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="field">
+                        <label for="expr">Cron expression</label>
+                        <input type="text" id="expr" spellcheck="false" autocomplete="off">
+                    </div>
+                    <div class="field">
+                        <label for="preset">Preset</label>
+                        <select id="preset"></select>
+                    </div>
+                </div>
+                <div class="row5">
+                    <div class="field">
+                        <label for="f-minute">minute</label>
+                        <input type="text" id="f-minute" spellcheck="false" autocomplete="off">
+                    </div>
+                    <div class="field">
+                        <label for="f-hour">hour</label>
+                        <input type="text" id="f-hour" spellcheck="false" autocomplete="off">
+                    </div>
+                    <div class="field">
+                        <label for="f-dom">day (month)</label>
+                        <input type="text" id="f-dom" spellcheck="false" autocomplete="off">
+                    </div>
+                    <div class="field">
+                        <label for="f-month">month</label>
+                        <input type="text" id="f-month" spellcheck="false" autocomplete="off">
+                    </div>
+                    <div class="field">
+                        <label for="f-dow">day (week)</label>
+                        <input type="text" id="f-dow" spellcheck="false" autocomplete="off">
+                    </div>
+                </div>
+                <div id="expr-out"></div>
+                <span class="hint">5 fields: minute hour day-of-month month day-of-week · aliases @hourly @daily @weekly @monthly @yearly @reboot · names jan-dec sun-sat · 0 and 7 both mean Sunday · no seconds field</span>
+            </div>
+        </div>
+
+        <!-- 02 Plain English -->
+        <div class="card">
+            <div class="card-head">
+                <span class="card-num">02</span>
+                <span class="card-name">Plain English</span>
+            </div>
+            <div class="card-body">
+                <div id="english-out"></div>
+            </div>
+        </div>
+
+        <!-- 03 Next runs -->
+        <div class="card">
+            <div class="card-head">
+                <span class="card-num">03</span>
+                <span class="card-name">Next runs</span>
+            </div>
+            <div class="card-body">
+                <div id="runs-out"></div>
+                <span class="hint" id="tz-hint"></span>
+            </div>
+        </div>
+
+        <!-- 04 systemd OnCalendar -->
+        <div class="card">
+            <div class="card-head">
+                <span class="card-num">04</span>
+                <span class="card-name">systemd OnCalendar</span>
+            </div>
+            <div class="card-body">
+                <div id="oncal-out"></div>
+                <span class="hint">verify with: systemd-analyze calendar '&lt;expression&gt;'</span>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // ── parser ──────────────────────────────────────────────
+        const MONTHS = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+        const DAYS   = {sun:0,mon:1,tue:2,wed:3,thu:4,fri:5,sat:6};
+
+        const FIELD_DEFS = [
+            { key:'minute', label:'minute',       min:0, max:59, names:null   },
+            { key:'hour',   label:'hour',         min:0, max:23, names:null   },
+            { key:'dom',    label:'day-of-month', min:1, max:31, names:null   },
+            { key:'month',  label:'month',        min:1, max:12, names:MONTHS },
+            { key:'dow',    label:'day-of-week',  min:0, max:7,  names:DAYS   },
+        ];
+
+        const ALIASES = {
+            '@yearly':'0 0 1 1 *', '@annually':'0 0 1 1 *', '@monthly':'0 0 1 * *',
+            '@weekly':'0 0 * * 0', '@daily':'0 0 * * *',    '@midnight':'0 0 * * *',
+            '@hourly':'0 * * * *', '@reboot': null,
+        };
+
+        function parseValue(tok, def) {
+            if (/^\d+$/.test(tok)) {
+                const n = parseInt(tok, 10);
+                if (n < def.min || n > def.max) return { err: `value ${n} out of range (${def.min}–${def.max})` };
+                return { n };
+            }
+            if (def.names && def.names[tok] !== undefined) return { n: def.names[tok] };
+            return { err: `unknown name "${tok}"` };
+        }
+
+        // one field → { set, elems, star } | { err }
+        function parseField(str, def) {
+            const set = new Set();
+            const elems = [];
+            for (const item of str.toLowerCase().split(',')) {
+                if (!item) return { err: 'empty list item' };
+                const slash = item.split('/');
+                if (slash.length > 2) return { err: `too many "/" in "${item}"` };
+                let step = 1;
+                if (slash.length === 2) {
+                    if (!/^\d+$/.test(slash[1])) return { err: `bad step "${slash[1]}"` };
+                    step = parseInt(slash[1], 10);
+                    if (step < 1) return { err: `step must be ≥ 1 in "${item}"` };
+                }
+                const base = slash[0];
+                let lo, hi, star = false;
+                if (base === '*') {
+                    lo = def.min; hi = def.max; star = true;
+                } else if (base.includes('-')) {
+                    const [a, b] = base.split('-');
+                    const ra = parseValue(a, def); if (ra.err) return ra;
+                    const rb = parseValue(b, def); if (rb.err) return rb;
+                    lo = ra.n; hi = rb.n;
+                    // dow ranges ending on Sunday-as-0 (fri-sun, 5-0) wrap to 7
+                    if (def.key === 'dow' && hi === 0 && lo > 0) hi = 7;
+                    if (lo > hi) return { err: `range start > end in "${base}"` };
+                } else {
+                    const r = parseValue(base, def); if (r.err) return r;
+                    lo = r.n;
+                    hi = slash.length === 2 ? def.max : r.n;   // Vixie: bare a/n means a-max/n
+                }
+                for (let v = lo; v <= hi; v += step) set.add(def.key === 'dow' && v === 7 ? 0 : v);
+                elems.push({ star, lo, hi, step });
+            }
+            return { set, elems, star: str[0] === '*' };
+        }
+
+        // → model | { err, badField }
+        function parseCron(str) {
+            str = str.trim();
+            if (!str) return { err: 'enter a cron expression', badField: -1 };
+            if (str[0] === '@') {
+                const alias = str.toLowerCase();
+                if (!(alias in ALIASES)) return { err: `unknown alias "${str}"`, badField: -1 };
+                if (alias === '@reboot') return { kind: 'reboot', alias: '@reboot' };
+                const m = parseCron(ALIASES[alias]);
+                m.alias = alias;
+                return m;
+            }
+            const tokens = str.split(/\s+/);
+            if (tokens.length !== 5) return { err: `expected 5 fields, got ${tokens.length}`, badField: -1 };
+            const model = { kind: 'cron', alias: null, raws: {}, fields: {}, elems: {} };
+            for (let i = 0; i < 5; i++) {
+                const def = FIELD_DEFS[i];
+                const r = parseField(tokens[i], def);
+                if (r.err) return { err: `${def.label}: ${r.err}`, badField: i };
+                model.raws[def.key] = tokens[i];
+                model.fields[def.key] = r.set;
+                model.elems[def.key] = r.elems;
+            }
+            model.domStar = tokens[2][0] === '*';   // Vixie DOM_STAR: first char of raw token
+            model.dowStar = tokens[4][0] === '*';
+            return model;
+        }
+
+        // ── matcher + next runs ─────────────────────────────────
+        // Vixie: when either day field's raw token starts with '*', dom AND dow
+        // must both match; only when neither does is it an OR.
+        function dayMatches(m, d) {
+            if (!m.fields.month.has(d.getMonth() + 1)) return false;
+            const domHit = m.fields.dom.has(d.getDate());
+            const dowHit = m.fields.dow.has(d.getDay());
+            return (m.domStar || m.dowStar) ? (domHit && dowHit) : (domHit || dowHit);
+        }
+
+        const DAY_CAP = 1600;   // ~4.4 years
+
+        function nextRuns(m, n, from) {
+            from = from || new Date();
+            const minutes = [...m.fields.minute].sort((a, b) => a - b);
+            const hours = [...m.fields.hour].sort((a, b) => a - b);
+            const out = [];
+            const y = from.getFullYear(), mo = from.getMonth(), da = from.getDate();
+            for (let i = 0; i < DAY_CAP && out.length < n; i++) {
+                const day = new Date(y, mo, da + i);   // Date normalizes → only real calendar days
+                if (!dayMatches(m, day)) continue;
+                for (const h of hours) {
+                    for (const mi of minutes) {
+                        const t = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, mi, 0, 0);
+                        if (t > from) {
+                            out.push(t);
+                            if (out.length >= n) return out;
+                        }
+                    }
+                }
+            }
+            return out;
+        }
+
+        // ── formatting helpers ──────────────────────────────────
+        function g(id) { return document.getElementById(id); }
+        function pad2(n) { return String(n).padStart(2, '0'); }
+        function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+        function errBox(msg) { return `<span class="err">${esc(msg)}</span>`; }
+
+        function flash(btn) {
+            const old = btn.textContent;
+            btn.textContent = 'Copied!';
+            btn.classList.add('flash');
+            setTimeout(() => { btn.textContent = old; btn.classList.remove('flash'); }, 1500);
+        }
+        function copyText(text, btn) {
+            navigator.clipboard.writeText(text).then(() => flash(btn));
+        }
+
+        function ord(n) {
+            const t = n % 100;
+            if (t >= 11 && t <= 13) return n + 'th';
+            return n + ({1:'st', 2:'nd', 3:'rd'}[n % 10] || 'th');
+        }
+        function joinAnd(arr) {
+            if (arr.length <= 1) return arr.join('');
+            return arr.slice(0, -1).join(', ') + ' and ' + arr[arr.length - 1];
+        }
+        function relDelta(target, now) {
+            let s = Math.round((target - (now || Date.now())) / 1000);
+            if (s < 60) return 'in <1m';
+            const units = [['y', 31536000], ['d', 86400], ['h', 3600], ['m', 60]];
+            const parts = [];
+            for (const [u, span] of units)
+                if (s >= span && parts.length < 2) { parts.push(Math.floor(s / span) + u); s %= span; }
+            return 'in ' + parts.join(' ');
+        }
+
+        const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const DAY_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        const MONTH_FULL = [null, 'January', 'February', 'March', 'April', 'May', 'June',
+                            'July', 'August', 'September', 'October', 'November', 'December'];
+
+        function fmtLocal(d) {
+            return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
+                   `${pad2(d.getHours())}:${pad2(d.getMinutes())} ${DAY_SHORT[d.getDay()]}`;
+        }
+
+        // ── English renderer ────────────────────────────────────
+        const single = e => !e.star && e.lo === e.hi && e.step === 1;
+        const pureStar = elems => elems.length === 1 && elems[0].star && elems[0].step === 1;
+
+        function minutePhrase(elems) {
+            if (elems.length > 1 && elems.every(single))
+                return 'at ' + joinAnd(elems.map(e => ':' + pad2(e.lo)));
+            if (elems.length > 1) return joinAnd(elems.map(e => minutePhrase([e])));
+            const e = elems[0];
+            if (e.star && e.step === 1) return 'every minute';
+            if (e.star) return `every ${e.step} minutes`;
+            if (single(e)) return `at :${pad2(e.lo)}`;
+            if (e.step === 1) return `every minute from :${pad2(e.lo)} through :${pad2(e.hi)}`;
+            return `every ${e.step} minutes from :${pad2(e.lo)} through :${pad2(e.hi)}`;
+        }
+
+        function hourPhrase(elems) {
+            if (elems.length > 1 && elems.every(single))
+                return 'past hour ' + joinAnd(elems.map(e => String(e.lo)));
+            if (elems.length > 1) return joinAnd(elems.map(e => hourPhrase([e])));
+            const e = elems[0];
+            if (e.star && e.step === 1) return 'every hour';
+            if (e.star) return `every ${e.step} hours`;
+            if (single(e)) return `past hour ${e.lo}`;
+            if (e.step === 1) return `past hour ${e.lo} through ${e.hi}`;
+            return `every ${e.step} hours from ${e.lo} through ${e.hi}`;
+        }
+
+        function domPhrase(elems) {
+            if (elems.every(single)) return 'on the ' + joinAnd(elems.map(e => ord(e.lo)));
+            if (elems.length > 1) return 'on ' + joinAnd(elems.map(e => domPhrase([e]).replace(/^on /, '')));
+            const e = elems[0];
+            if (e.star && e.step === 1) return 'every day of the month';
+            if (e.star) return `every ${e.step} days`;
+            if (e.step === 1) return `on the ${ord(e.lo)} through the ${ord(e.hi)}`;
+            return `every ${e.step} days from the ${ord(e.lo)} through the ${ord(e.hi)}`;
+        }
+
+        function monthNamesPhrase(elems) {
+            if (elems.every(single)) return joinAnd(elems.map(e => MONTH_FULL[e.lo]));
+            if (elems.length > 1) return joinAnd(elems.map(e => monthNamesPhrase([e])));
+            const e = elems[0];
+            if (e.star && e.step === 1) return 'every month';
+            if (e.star) return `every ${e.step} months`;
+            if (e.step === 1) return `${MONTH_FULL[e.lo]} through ${MONTH_FULL[e.hi]}`;
+            return `every ${e.step} months from ${MONTH_FULL[e.lo]} through ${MONTH_FULL[e.hi]}`;
+        }
+
+        function dowPhrase(elems) {
+            if (elems.every(single)) return 'on ' + joinAnd(elems.map(e => DAY_FULL[e.lo]));
+            if (elems.length > 1) return 'on ' + joinAnd(elems.map(e => dowPhrase([e]).replace(/^on /, '')));
+            const e = elems[0];
+            if (e.star && e.step === 1) return 'every day of the week';
+            if (e.star) return `every ${e.step} days of the week`;
+            if (e.step === 1) return `on ${DAY_FULL[e.lo]} through ${DAY_FULL[e.hi]}`;
+            return `every ${e.step} days of the week from ${DAY_FULL[e.lo]} through ${DAY_FULL[e.hi]}`;
+        }
+
+        function describe(m) {
+            if (m.kind === 'reboot') return 'At every reboot';
+            const min = m.elems.minute, hr = m.elems.hour;
+            const hrStar = pureStar(hr);
+            let time;
+            if (min.length === 1 && single(min[0]) && !hrStar && hr.every(single)) {
+                time = 'at ' + joinAnd(hr.map(e => pad2(e.lo) + ':' + pad2(min[0].lo)));
+            } else if (min.every(single) && hrStar) {
+                time = minutePhrase(min) + ' past every hour';
+            } else {
+                time = minutePhrase(min);
+                if (!hrStar) {
+                    const hp = hourPhrase(hr);
+                    time += (hp.startsWith('every') ? ', ' : ' ') + hp;
+                }
+            }
+
+            const domP = m.raws.dom === '*' ? null : domPhrase(m.elems.dom);
+            const dowP = m.raws.dow === '*' ? null : dowPhrase(m.elems.dow);
+            const monP = m.raws.month === '*' ? null : monthNamesPhrase(m.elems.month);
+            const monthDesc = monP || 'the month';
+            let day;
+            if (domP && dowP) {
+                const conj = (!m.domStar && !m.dowStar) ? ', or ' : ' and ';
+                day = ` ${domP} of ${monthDesc}${conj}${dowP}`;
+            } else if (domP) {
+                day = ` ${domP} of ${monthDesc}`;
+            } else if (dowP) {
+                day = ` ${dowP}` + (monP ? ` in ${monP}` : '');
+            } else {
+                day = monP ? ` in ${monP}` : '';
+            }
+            const s = time + day;
+            return s.charAt(0).toUpperCase() + s.slice(1);
+        }
+
+        // standalone per-field phrases for the breakdown grid
+        function fieldPhrase(key, m) {
+            const elems = m.elems[key];
+            switch (key) {
+                case 'minute': return minutePhrase(elems);
+                case 'hour':   return hourPhrase(elems).replace(/^past hour /, 'at hour ');
+                case 'dom':    return domPhrase(elems);
+                case 'month':  return pureStar(elems) ? 'every month' : 'in ' + monthNamesPhrase(elems);
+                case 'dow':    return dowPhrase(elems);
+            }
+        }
+
+        // ── systemd OnCalendar ──────────────────────────────────
+        function calComp(elems) {
+            if (elems.some(e => e.star && e.step === 1)) return '*';
+            return elems.map(e => {
+                // systemd rejects */n in calendar specs; the step form is value/n
+                // (a star elem's lo is already the field minimum)
+                if (e.star) return pad2(e.lo) + '/' + e.step;
+                if (e.lo === e.hi) return pad2(e.lo);
+                if (e.step === 1) return pad2(e.lo) + '..' + pad2(e.hi);
+                return pad2(e.lo) + '..' + pad2(e.hi) + '/' + e.step;
+            }).join(',');
+        }
+
+        // systemd's weekday part has no steps, so rebuild from the expanded
+        // set: group maximal consecutive runs in Mon..Sun order
+        function calDow(set) {
+            const order = [1, 2, 3, 4, 5, 6, 0];
+            const runs = [];
+            let run = null;
+            for (let i = 0; i < 7; i++) {
+                if (set.has(order[i])) {
+                    if (run && run.end === i - 1) run.end = i;
+                    else { run = { start: i, end: i }; runs.push(run); }
+                }
+            }
+            return runs.map(r => r.start === r.end
+                ? DAY_SHORT[order[r.start]]
+                : DAY_SHORT[order[r.start]] + '..' + DAY_SHORT[order[r.end]]).join(',');
+        }
+
+        function toOnCalendar(m) {
+            if (m.kind === 'reboot') return {
+                lines: [],
+                notes: ['@reboot has no OnCalendar equivalent — use OnBootSec=0 (or OnStartupSec=) in the [Timer] unit instead.'],
+            };
+            const time = `${calComp(m.elems.hour)}:${calComp(m.elems.minute)}:00`;
+            const monthC = calComp(m.elems.month);
+            const domC = calComp(m.elems.dom);
+            const dowRestricted = m.raws.dow !== '*';
+            if (!m.domStar && !m.dowStar) {
+                // Vixie OR: systemd ANDs weekday with the date, so split into two timers
+                return {
+                    lines: [
+                        `OnCalendar=*-${monthC}-${domC} ${time}`,
+                        `OnCalendar=${calDow(m.fields.dow)} *-${monthC}-* ${time}`,
+                    ],
+                    notes: ['cron fires when day-of-month OR day-of-week matches; systemd ANDs them — put BOTH OnCalendar= lines in the same [Timer] section to reproduce the OR.'],
+                };
+            }
+            const dowPrefix = dowRestricted ? calDow(m.fields.dow) + ' ' : '';
+            return { lines: [`OnCalendar=${dowPrefix}*-${monthC}-${domC} ${time}`], notes: [] };
+        }
+
+        // ── rendering ───────────────────────────────────────────
+        let model = null;
+        let lastRuns = '';
+        let lastOnCal = '';
+
+        function renderExpr() {
+            g('expr-out').innerHTML = model.err ? errBox(model.err) : '';
+        }
+
+        function renderEnglish() {
+            const out = g('english-out');
+            if (model.err) { out.innerHTML = '<span class="dim">—</span>'; return; }
+            let html = `<div class="verdict">${esc(describe(model))}</div>`;
+            if (model.kind === 'cron') {
+                const rows = FIELD_DEFS.map(d => {
+                    const vals = [...model.fields[d.key]].sort((a, b) => a - b);
+                    const preview = vals.length > 20
+                        ? vals.slice(0, 20).join(',') + ` <span class="dim">… (${vals.length} total)</span>`
+                        : vals.join(',');
+                    return [d.label, `${esc(fieldPhrase(d.key, model))} <span class="dim">→ ${preview}</span>`];
+                });
+                html += '<div style="margin-top:10px"><div class="kv">' + rows.map(([k, v]) =>
+                    `<div class="k">${k}</div><div class="v">${v}</div>`).join('') + '</div></div>';
+            }
+            out.innerHTML = html;
+        }
+
+        function renderRuns() {
+            const out = g('runs-out');
+            if (model.err) { out.innerHTML = '<span class="dim">—</span>'; lastRuns = ''; return; }
+            if (model.kind === 'reboot') {
+                out.innerHTML = '<div class="mono-out">@reboot runs once when the daemon starts — no schedule to compute</div>';
+                lastRuns = '';
+                return;
+            }
+            const runs = nextRuns(model, 10);
+            if (!runs.length) {
+                out.innerHTML = '<div class="mono-out">never fires (no match found in the next ~4.4 years)</div>';
+                lastRuns = '';
+                return;
+            }
+            const lines = runs.map(t => fmtLocal(t).padEnd(24) + relDelta(t));
+            const tail = runs.length < 10
+                ? '\n<span class="dim">no further runs within ~4.4 years</span>' : '';
+            lastRuns = runs.map(t => fmtLocal(t)).join('\n');
+            out.innerHTML = `
+                <div class="out-tools">
+                    <span class="out-count">next <b>${runs.length}</b> run${runs.length === 1 ? '' : 's'}</span>
+                    <button class="btn" onclick="copyText(lastRuns, this)">Copy</button>
+                </div>
+                <div class="mono-out" style="margin-top:8px">${lines.join('\n')}${tail}</div>`;
+        }
+
+        function renderOnCal() {
+            const out = g('oncal-out');
+            if (model.err) { out.innerHTML = '<span class="dim">—</span>'; lastOnCal = ''; return; }
+            const { lines, notes } = toOnCalendar(model);
+            lastOnCal = lines.join('\n');
+            let html = '';
+            if (lines.length) {
+                html += `
+                    <div class="out-tools">
+                        <span class="out-count"><b>${lines.length}</b> OnCalendar= value${lines.length === 1 ? '' : 's'}</span>
+                        <button class="btn" onclick="copyText(lastOnCal, this)">Copy</button>
+                    </div>
+                    <div class="mono-out" style="margin-top:8px">${esc(lines.join('\n'))}</div>`;
+            }
+            html += notes.map(n => `<div class="hint" style="margin-top:8px">${esc(n)}</div>`).join('');
+            out.innerHTML = html;
+        }
+
+        function renderAll(res) {
+            model = res;
+            const bad = !!res.err;
+            g('expr').classList.toggle('bad', bad && g('expr').value.trim() !== '');
+            FIELD_DEFS.forEach((d, i) =>
+                g('f-' + d.key).classList.toggle('bad', bad && res.badField === i));
+            renderExpr();
+            renderEnglish();
+            renderRuns();
+            renderOnCal();
+        }
+
+        // ── bidirectional sync ──────────────────────────────────
+        const PRESETS = [
+            { label: 'every minute',       expr: '* * * * *' },
+            { label: 'every 5 minutes',    expr: '*/5 * * * *' },
+            { label: 'every 15 minutes',   expr: '*/15 * * * *' },
+            { label: 'hourly',             expr: '0 * * * *' },
+            { label: 'daily 03:00',        expr: '0 3 * * *' },
+            { label: 'weekly Sun 03:00',   expr: '0 3 * * 0' },
+            { label: 'monthly 1st 03:00',  expr: '0 3 1 * *' },
+            { label: 'weekdays 09:00',     expr: '0 9 * * 1-5' },
+            { label: 'yearly Jan 1',       expr: '0 0 1 1 *' },
+        ];
+
+        let syncing = false;
+
+        function fromExpr() {
+            if (syncing) return;
+            syncing = true;
+            const res = parseCron(g('expr').value);
+            if (res.raws) FIELD_DEFS.forEach(d => g('f-' + d.key).value = res.raws[d.key]);
+            else if (res.kind === 'reboot') FIELD_DEFS.forEach(d => g('f-' + d.key).value = '');
+            const norm = g('expr').value.trim().replace(/\s+/g, ' ');
+            g('preset').value = PRESETS.some(p => p.expr === norm) ? norm : '';
+            syncing = false;
+            renderAll(res);
+        }
+
+        function fromFields() {
+            if (syncing) return;
+            syncing = true;
+            g('expr').value = FIELD_DEFS.map(d => g('f-' + d.key).value.trim() || '*').join(' ');
+            g('preset').value = '';
+            syncing = false;
+            renderAll(parseCron(g('expr').value));
+        }
+
+        function fromPreset() {
+            if (!g('preset').value) return;
+            g('expr').value = g('preset').value;
+            fromExpr();
+        }
+
+        // ── wiring ──────────────────────────────────────────────
+        const presetSel = g('preset');
+        presetSel.appendChild(new Option('custom…', ''));
+        PRESETS.forEach(p => presetSel.appendChild(new Option(p.label, p.expr)));
+
+        g('expr').addEventListener('input', fromExpr);
+        presetSel.addEventListener('change', fromPreset);
+        FIELD_DEFS.forEach(d => g('f-' + d.key).addEventListener('input', fromFields));
+
+        g('tz-hint').textContent =
+            `times shown in your browser's local zone (${Intl.DateTimeFormat().resolvedOptions().timeZone}); ` +
+            'cron evaluates in the server\'s timezone; DST transitions are approximated';
+
+        setInterval(() => { if (model && model.kind === 'cron' && !model.err) renderRuns(); }, 30000);
+
+        g('expr').value = '*/15 9-17 * * 1-5';
+        fromExpr();
+    </script>
+</body>
+</html>
