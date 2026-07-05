@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Incident Timeline</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0d0f14;
+            --surface: #14171f;
+            --surface-2: #1c2030;
+            --surface-3: #252a3d;
+            --border: rgba(255, 255, 255, 0.07);
+            --border-strong: rgba(255, 255, 255, 0.14);
+            --text: #e8eaf0;
+            --text-muted: #9298a8;
+            --text-dim: #5c6275;
+            --adversary: #ef6b6b;
+            --capability: #b794f6;
+            --infrastructure: #4fd1c5;
+            --victim: #63b3ed;
+            --amber: #f6ad55;
+            --accent: #63b3ed;
+            --accent-dim: rgba(99, 179, 237, 0.12);
+            --accent-border: rgba(99, 179, 237, 0.30);
+            --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            --radius-sm: 4px;
+            --radius-md: 6px;
+            --radius-lg: 10px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 14px;
+            line-height: 1.55;
+            min-height: 100vh;
+        }
+
+        .header {
+            border-bottom: 1px solid var(--border);
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--surface);
+        }
+
+        .back {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            text-decoration: none;
+            letter-spacing: 0.05em;
+            transition: color 0.15s;
+        }
+        .back:hover { color: var(--accent); }
+
+        .sep { color: var(--text-dim); }
+        .header-title { font-size: 14px; font-weight: 600; color: var(--text); }
+
+        .header-badge {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--accent);
+            background: var(--accent-dim);
+            border: 1px solid var(--accent-border);
+            border-radius: var(--radius-sm);
+            padding: 2px 7px;
+            letter-spacing: 0.06em;
+        }
+
+        .header-count {
+            margin-left: auto;
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-dim);
+            letter-spacing: 0.04em;
+        }
+        .header-count b { color: var(--accent); font-weight: 600; }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: 380px 1fr;
+            height: calc(100vh - 49px);
+        }
+
+        @media (max-width: 860px) {
+            .workspace { grid-template-columns: 1fr; height: auto; }
+            .canvas-panel { border-left: none; border-top: 1px solid var(--border); min-height: 480px; }
+        }
+
+        .form-panel {
+            border-right: 1px solid var(--border);
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .block {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--surface);
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 11px;
+        }
+
+        .block-title {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.10em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+        }
+
+        .field { display: flex; flex-direction: column; gap: 5px; }
+
+        label {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-muted);
+            letter-spacing: 0.03em;
+        }
+
+        input[type="text"], input[type="datetime-local"], select, textarea {
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-md);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 12.5px;
+            padding: 7px 10px;
+            outline: none;
+            width: 100%;
+            transition: border-color 0.15s;
+        }
+        input:focus, select:focus, textarea:focus { border-color: var(--accent-border); }
+        select option { background: var(--surface-2); }
+        input[type="datetime-local"] { font-family: var(--font-mono); font-size: 11.5px; color-scheme: dark; }
+
+        textarea {
+            font-family: var(--font-sans);
+            resize: vertical;
+            min-height: 60px;
+            line-height: 1.5;
+        }
+
+        .btn-row { display: flex; gap: 8px; }
+
+        .primary-btn {
+            background: var(--accent-dim);
+            border: 1px solid var(--accent-border);
+            border-radius: var(--radius-md);
+            color: var(--accent);
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+            padding: 9px;
+            cursor: pointer;
+            flex: 1;
+            transition: background 0.15s;
+        }
+        .primary-btn:hover { background: rgba(99, 179, 237, 0.2); }
+
+        .ghost-btn {
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-md);
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+            padding: 9px 12px;
+            cursor: pointer;
+            transition: color 0.15s, background 0.15s;
+        }
+        .ghost-btn:hover { color: var(--text); background: var(--surface-3); }
+
+        /* event list */
+        .ev-list { display: flex; flex-direction: column; gap: 6px; }
+
+        .ev-row {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 7px 10px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            transition: border-color 0.15s, background 0.15s;
+        }
+        .ev-row:hover { background: var(--surface-3); }
+        .ev-row.editing { border-color: var(--accent-border); }
+
+        .ev-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+        .ev-meta { flex: 1; min-width: 0; }
+        .ev-ts {
+            font-family: var(--font-mono);
+            font-size: 9.5px;
+            color: var(--text-dim);
+            letter-spacing: 0.04em;
+        }
+        .ev-title {
+            font-size: 12px;
+            color: var(--text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .ev-del {
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            font-size: 14px;
+            cursor: pointer;
+            padding: 2px 5px;
+            border-radius: var(--radius-sm);
+        }
+        .ev-del:hover { color: var(--adversary); background: rgba(239, 107, 107, 0.1); }
+
+        .empty-note {
+            color: var(--text-dim);
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-style: italic;
+        }
+
+        /* canvas */
+        .canvas-panel { display: flex; flex-direction: column; overflow: hidden; }
+
+        .canvas-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+            flex-shrink: 0;
+        }
+
+        .canvas-title {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.10em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            flex: 1;
+        }
+
+        .out-btn {
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            padding: 4px 9px;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s, background 0.15s;
+        }
+        .out-btn:hover { color: var(--text); background: var(--surface-3); }
+        .out-btn.flash { color: var(--accent); border-color: var(--accent-border); background: var(--accent-dim); }
+
+        .canvas-body { flex: 1; overflow: auto; padding: 20px; }
+        .canvas-body svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+        .canvas-body svg g.ev-node { cursor: pointer; }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <a href="../" class="back">← hub</a>
+        <span class="sep">/</span>
+        <span class="header-title">Incident Timeline</span>
+        <span class="header-badge">CTI</span>
+        <span class="header-count"><b id="ev-count">0</b> events</span>
+    </header>
+
+    <div class="workspace">
+        <div class="form-panel">
+
+            <div class="block">
+                <div class="block-title">Timeline</div>
+                <div class="field">
+                    <label for="tl-title">Title</label>
+                    <input type="text" id="tl-title" placeholder="Incident 2026-0042 — initial access to exfil" onchange="S.title=this.value.trim();save();render()">
+                </div>
+            </div>
+
+            <div class="block">
+                <div class="block-title" id="form-mode">Add event</div>
+                <div class="field">
+                    <label for="f-ts">Timestamp</label>
+                    <input type="datetime-local" id="f-ts" step="1">
+                </div>
+                <div class="field">
+                    <label for="f-title">Title</label>
+                    <input type="text" id="f-title" placeholder="Spearphish delivered to finance@…">
+                </div>
+                <div class="field">
+                    <label for="f-cat">Category</label>
+                    <select id="f-cat">
+                        <option value="adversary">Adversary</option>
+                        <option value="capability">Capability</option>
+                        <option value="infrastructure" selected>Infrastructure</option>
+                        <option value="victim">Victim / Impact</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="f-desc">Description <span style="color:var(--text-dim);font-weight:400">(optional)</span></label>
+                    <textarea id="f-desc" placeholder="Details, source, confidence…"></textarea>
+                </div>
+                <div class="btn-row">
+                    <button class="primary-btn" id="submit-btn" onclick="submitEvent()">Add event</button>
+                    <button class="ghost-btn" id="cancel-btn" style="display:none" onclick="cancelEdit()">Cancel</button>
+                </div>
+            </div>
+
+            <div class="block">
+                <div class="block-title">Events</div>
+                <div class="ev-list" id="ev-list">
+                    <span class="empty-note">Nothing yet.</span>
+                </div>
+            </div>
+
+            <div class="block">
+                <div class="block-title">Data</div>
+                <div class="btn-row">
+                    <button class="ghost-btn" style="flex:1" onclick="importJSON()">Import JSON</button>
+                    <button class="ghost-btn" style="flex:1" onclick="clearAll()">Clear all</button>
+                </div>
+                <input type="file" id="file-input" accept=".json,application/json" style="display:none">
+            </div>
+
+        </div>
+
+        <div class="canvas-panel">
+            <div class="canvas-head">
+                <span class="canvas-title">Timeline</span>
+                <button class="out-btn" onclick="exportSVG(this)">Export SVG</button>
+                <button class="out-btn" onclick="exportJSON(this)">Export JSON</button>
+                <button class="out-btn" id="copy-json-btn" onclick="copyJSON(this)">Copy JSON</button>
+            </div>
+            <div class="canvas-body" id="canvas"></div>
+        </div>
+    </div>
+
+    <script>
+        // ── Palette (literal hex so exported SVG is standalone) ─
+        const COLORS = {
+            adversary:      '#ef6b6b',
+            capability:     '#b794f6',
+            infrastructure: '#4fd1c5',
+            victim:         '#63b3ed',
+            other:          '#f6ad55',
+        };
+        const CAT_LABELS = {
+            adversary: 'ADVERSARY',
+            capability: 'CAPABILITY',
+            infrastructure: 'INFRASTRUCTURE',
+            victim: 'VICTIM',
+            other: 'OTHER',
+        };
+        const C = {
+            bg: '#0d0f14', surface: '#14171f', border: 'rgba(255,255,255,0.10)',
+            text: '#e8eaf0', muted: '#9298a8', dim: '#5c6275',
+        };
+
+        // ── State ───────────────────────────────────────────────
+        let S = { title: '', events: [] };
+        let editingId = null;
+        let nextId = 1;
+        const LS_KEY = 'incident-timeline-state';
+
+        function save() {
+            try { localStorage.setItem(LS_KEY, JSON.stringify(S)); } catch (e) {}
+        }
+
+        function load() {
+            try {
+                const raw = localStorage.getItem(LS_KEY);
+                if (raw) applyState(JSON.parse(raw));
+            } catch (e) {}
+        }
+
+        function applyState(obj) {
+            if (!obj || !Array.isArray(obj.events)) throw new Error('invalid state');
+            S = {
+                title: typeof obj.title === 'string' ? obj.title : '',
+                events: obj.events
+                    .filter(e => e && e.ts && e.title)
+                    .map(e => ({
+                        id: nextId++,
+                        ts: String(e.ts),
+                        title: String(e.title),
+                        category: COLORS[e.category] ? e.category : 'other',
+                        description: e.description ? String(e.description) : '',
+                    })),
+            };
+            sortEvents();
+            document.getElementById('tl-title').value = S.title;
+        }
+
+        function sortEvents() {
+            S.events.sort((a, b) => a.ts.localeCompare(b.ts));
+        }
+
+        // ── Event form ──────────────────────────────────────────
+        function g(id) { return document.getElementById(id); }
+
+        function submitEvent() {
+            const ts = g('f-ts').value;
+            const title = g('f-title').value.trim();
+            if (!ts || !title) {
+                g(ts ? 'f-title' : 'f-ts').focus();
+                return;
+            }
+            const data = {
+                ts,
+                title,
+                category: g('f-cat').value,
+                description: g('f-desc').value.trim(),
+            };
+            if (editingId !== null) {
+                const ev = S.events.find(e => e.id === editingId);
+                if (ev) Object.assign(ev, data);
+                cancelEdit();
+            } else {
+                S.events.push({ id: nextId++, ...data });
+                g('f-title').value = '';
+                g('f-desc').value = '';
+            }
+            sortEvents();
+            save();
+            render();
+        }
+
+        function startEdit(id) {
+            const ev = S.events.find(e => e.id === id);
+            if (!ev) return;
+            editingId = id;
+            g('f-ts').value = ev.ts;
+            g('f-title').value = ev.title;
+            g('f-cat').value = ev.category;
+            g('f-desc').value = ev.description;
+            g('form-mode').textContent = 'Edit event';
+            g('submit-btn').textContent = 'Update';
+            g('cancel-btn').style.display = '';
+            render();
+        }
+
+        function cancelEdit() {
+            editingId = null;
+            g('f-title').value = '';
+            g('f-desc').value = '';
+            g('form-mode').textContent = 'Add event';
+            g('submit-btn').textContent = 'Add event';
+            g('cancel-btn').style.display = 'none';
+            render();
+        }
+
+        function deleteEvent(id, e) {
+            e.stopPropagation();
+            S.events = S.events.filter(ev => ev.id !== id);
+            if (editingId === id) cancelEdit();
+            save();
+            render();
+        }
+
+        function clearAll() {
+            if (S.events.length && !confirm('Remove all events?')) return;
+            S = { title: S.title, events: [] };
+            cancelEdit();
+            save();
+            render();
+        }
+
+        // ── Left-panel list ─────────────────────────────────────
+        function esc(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function fmtTs(ts) {
+            return ts.replace('T', ' ');
+        }
+
+        function renderList() {
+            const box = g('ev-list');
+            g('ev-count').textContent = S.events.length;
+            if (!S.events.length) {
+                box.innerHTML = '<span class="empty-note">Nothing yet.</span>';
+                return;
+            }
+            box.innerHTML = S.events.map(ev => `
+                <div class="ev-row${ev.id === editingId ? ' editing' : ''}" onclick="startEdit(${ev.id})">
+                    <span class="ev-dot" style="background:${COLORS[ev.category]}"></span>
+                    <span class="ev-meta">
+                        <span class="ev-ts">${esc(fmtTs(ev.ts))}</span><br>
+                        <span class="ev-title">${esc(ev.title)}</span>
+                    </span>
+                    <button class="ev-del" title="Delete" onclick="deleteEvent(${ev.id}, event)">✕</button>
+                </div>`).join('');
+        }
+
+        // ── SVG timeline ────────────────────────────────────────
+        const W = 900, SPINE = 450, CARD_W = 330, CONN = 42;
+
+        function wrap(text, maxChars) {
+            const words = String(text).split(/\s+/).filter(Boolean);
+            const lines = [];
+            let cur = '';
+            for (const w of words) {
+                if (cur && (cur + ' ' + w).length > maxChars) { lines.push(cur); cur = w; }
+                else cur = cur ? cur + ' ' + w : w;
+            }
+            if (cur) lines.push(cur);
+            return lines;
+        }
+
+        function humanGap(a, b) {
+            let ms = new Date(b) - new Date(a);
+            if (isNaN(ms) || ms <= 0) return null;
+            const d = Math.floor(ms / 86400000); ms -= d * 86400000;
+            const h = Math.floor(ms / 3600000);  ms -= h * 3600000;
+            const m = Math.floor(ms / 60000);    ms -= m * 60000;
+            const s = Math.floor(ms / 1000);
+            const parts = [];
+            if (d) parts.push(d + 'd');
+            if (h) parts.push(h + 'h');
+            if (!d && m) parts.push(m + 'm');
+            if (!d && !h && !m && s) parts.push(s + 's');
+            return parts.length ? '+' + parts.slice(0, 2).join(' ') : null;
+        }
+
+        function svgText(x, y, str, size, fill, opts) {
+            opts = opts || {};
+            return `<text x="${x}" y="${y}" font-size="${size}" fill="${fill}"` +
+                (opts.mono ? ` font-family="'JetBrains Mono',Menlo,monospace"` : ` font-family="'IBM Plex Sans',system-ui,sans-serif"`) +
+                (opts.weight ? ` font-weight="${opts.weight}"` : '') +
+                (opts.anchor ? ` text-anchor="${opts.anchor}"` : '') +
+                (opts.spacing ? ` letter-spacing="${opts.spacing}"` : '') +
+                `>${esc(str)}</text>`;
+        }
+
+        function buildSVG() {
+            const evs = S.events;
+            const parts = [];
+            let y = 40;
+
+            if (S.title) {
+                parts.push(svgText(SPINE, y, S.title, 17, C.text, { anchor: 'middle', weight: 600 }));
+                y += 18;
+            }
+            y += 22;
+            const spineTop = y;
+
+            const nodes = [];
+            evs.forEach((ev, i) => {
+                if (i > 0) {
+                    const gap = humanGap(evs[i - 1].ts, ev.ts);
+                    if (gap) {
+                        y += 8;
+                        nodes.push({ gapLabel: gap, gapY: y + 4 });
+                        y += 20;
+                    } else {
+                        y += 14;
+                    }
+                }
+                const titleLines = wrap(ev.title, 42);
+                const descLines = ev.description ? wrap(ev.description, 50).slice(0, 6) : [];
+                const cardH = 12 + 15 + titleLines.length * 18 + (descLines.length ? 6 + descLines.length * 16 : 0) + 12;
+                nodes.push({ ev, y, titleLines, descLines, cardH, side: i % 2 === 0 ? 'left' : 'right' });
+                y += cardH;
+            });
+            const spineBottom = y + 20;
+            const totalH = spineBottom + 30;
+
+            const out = [];
+            out.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${totalH}" width="${W}" height="${totalH}">`);
+            out.push(`<rect x="0" y="0" width="${W}" height="${totalH}" fill="${C.bg}"/>`);
+            out.push(...parts);
+
+            if (!evs.length) {
+                out.push(svgText(SPINE, 90, 'Add events on the left to build the timeline.', 13, C.dim, { anchor: 'middle', mono: true }));
+                out.push('</svg>');
+                return { svg: out.join('\n'), height: totalH };
+            }
+
+            out.push(`<line x1="${SPINE}" y1="${spineTop}" x2="${SPINE}" y2="${spineBottom}" stroke="${C.border}" stroke-width="2"/>`);
+
+            for (const n of nodes) {
+                if (n.gapLabel) {
+                    out.push(`<rect x="${SPINE - 34}" y="${n.gapY - 11}" width="68" height="16" rx="8" fill="${C.bg}"/>`);
+                    out.push(svgText(SPINE, n.gapY, n.gapLabel, 10, C.dim, { anchor: 'middle', mono: true }));
+                    continue;
+                }
+                const { ev, y: cy, titleLines, descLines, cardH, side } = n;
+                const col = COLORS[ev.category];
+                const dotY = cy + 20;
+                const cardX = side === 'left' ? SPINE - CONN - CARD_W : SPINE + CONN;
+                const connX2 = side === 'left' ? SPINE - CONN : SPINE + CONN;
+
+                out.push(`<line x1="${SPINE}" y1="${dotY}" x2="${connX2}" y2="${dotY}" stroke="${col}" stroke-width="1.2" opacity="0.55"/>`);
+                out.push(`<circle cx="${SPINE}" cy="${dotY}" r="5.5" fill="${C.bg}" stroke="${col}" stroke-width="2"/>`);
+
+                out.push(`<g class="ev-node" data-id="${ev.id}">`);
+                out.push(`<rect x="${cardX}" y="${cy}" width="${CARD_W}" height="${cardH}" rx="9" fill="${C.surface}" stroke="${ev.id === editingId ? col : C.border}" stroke-width="1"/>`);
+                out.push(`<rect x="${side === 'left' ? cardX + CARD_W - 3 : cardX}" y="${cy}" width="3" height="${cardH}" rx="1.5" fill="${col}" opacity="0.85"/>`);
+
+                let ty = cy + 12 + 10;
+                const tx = cardX + 14;
+                out.push(svgText(tx, ty, fmtTs(ev.ts), 10, C.dim, { mono: true, spacing: '0.04em' }));
+                out.push(svgText(cardX + CARD_W - 14, ty, CAT_LABELS[ev.category], 9, col, { mono: true, anchor: 'end', spacing: '0.08em' }));
+                ty += 6;
+                for (const line of titleLines) {
+                    ty += 18;
+                    out.push(svgText(tx, ty, line, 13.5, C.text, { weight: 600 }));
+                }
+                if (descLines.length) {
+                    ty += 6;
+                    for (const line of descLines) {
+                        ty += 16;
+                        out.push(svgText(tx, ty, line, 11.5, C.muted));
+                    }
+                }
+                out.push('</g>');
+            }
+
+            out.push('</svg>');
+            return { svg: out.join('\n'), height: totalH };
+        }
+
+        function render() {
+            renderList();
+            const { svg } = buildSVG();
+            const canvas = g('canvas');
+            canvas.innerHTML = svg;
+            canvas.querySelectorAll('g.ev-node').forEach(node => {
+                node.addEventListener('click', () => startEdit(parseInt(node.dataset.id, 10)));
+            });
+        }
+
+        // ── Export / import ─────────────────────────────────────
+        function flash(btn, label) {
+            const old = btn.textContent;
+            btn.textContent = label;
+            btn.classList.add('flash');
+            setTimeout(() => { btn.textContent = old; btn.classList.remove('flash'); }, 1500);
+        }
+
+        function downloadFile(name, content, type) {
+            const blob = new Blob([content], { type });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = name;
+            a.click();
+            URL.revokeObjectURL(a.href);
+        }
+
+        function stateJSON() {
+            return JSON.stringify({
+                title: S.title,
+                events: S.events.map(({ ts, title, category, description }) => ({ ts, title, category, description })),
+            }, null, 2);
+        }
+
+        function exportSVG(btn) {
+            const { svg } = buildSVG();
+            downloadFile('timeline.svg', svg, 'image/svg+xml');
+            flash(btn, 'Saved!');
+        }
+
+        function exportJSON(btn) {
+            downloadFile('timeline.json', stateJSON(), 'application/json');
+            flash(btn, 'Saved!');
+        }
+
+        function copyJSON(btn) {
+            navigator.clipboard.writeText(stateJSON()).then(() => flash(btn, 'Copied!'));
+        }
+
+        function importJSON() {
+            const input = g('file-input');
+            input.onchange = () => {
+                const file = input.files[0];
+                if (!file) return;
+                file.text().then(text => {
+                    try {
+                        nextId = 1;
+                        applyState(JSON.parse(text));
+                        cancelEdit();
+                        save();
+                        render();
+                    } catch (e) {
+                        alert('Could not parse that file as a timeline JSON: ' + e.message);
+                    }
+                    input.value = '';
+                });
+            };
+            input.click();
+        }
+
+        // ── Init ────────────────────────────────────────────────
+        load();
+        render();
+    </script>
+</body>
+</html>
