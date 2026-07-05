@@ -73,6 +73,9 @@ Incident/intrusion timeline builder. State in a single object `S` (`title`, `eve
 ### `subnet-calculator/`
 IPv4 CIDR calculator, four sections on one page: CIDR info (network/broadcast/mask/wildcard/host range, accepts `/nn` or dotted-mask input), contains check (IP or subnet vs. network), split into smaller subnets (output capped at 1024 rows), and summarize (merge an IP/CIDR list into the minimal covering CIDR set via range merge + `rangeToCIDRs()`). All math on 32-bit unsigned ints (`>>> 0`); everything renders live on input.
 
+### `generate-cloud-init/`
+Cloud-init `user-data` (`#cloud-config`) generator, same form/output UX as the other `generate-` tools. Covers hostname/timezone/locale, package update/upgrade + package list, repeatable user blocks (groups, sudo NOPASSWD, lock_passwd, pre-hashed passwd via `openssl passwd -6`, SSH keys) with optional `- default` user, ssh_pwauth/disable_root, repeatable write_files (block-scalar content), runcmd, and final_message. YAML is emitted by hand (`yamlStr()`, `pushBlockScalar()`), no library.
+
 ### `concept-graph/`
 Typed node/edge graph visualizer for data flow, event pub/sub, and task dependencies. Users write a small line-oriented DSL (`id [kind]`, `A -> B`, `A emits X`, `A blocks B`, etc. — grammar lives in the `parse()`/`RELATIONS` section of the source); output re-renders on a 250ms debounce as four tabs: a live SVG **Preview** (via the Mermaid CDN, the only tool in this repo that needs network on first load), **Mermaid** fenced code, raw **ASCII** box-and-arrow art (own layered/Sugiyama-style layout with cycle-breaking), and canonical **JSON**. Parse errors surface non-blocking in a strip above the editor; the ASCII renderer caps at 40 nodes.
 
