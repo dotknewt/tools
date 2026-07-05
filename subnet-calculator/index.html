@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subnet Calculator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0d0f14;
+            --surface: #14171f;
+            --surface-2: #1c2030;
+            --surface-3: #252a3d;
+            --border: rgba(255, 255, 255, 0.07);
+            --border-strong: rgba(255, 255, 255, 0.14);
+            --text: #e8eaf0;
+            --text-muted: #9298a8;
+            --text-dim: #5c6275;
+            --accent: #4fd1c5;
+            --accent-dim: rgba(79, 209, 197, 0.12);
+            --accent-border: rgba(79, 209, 197, 0.30);
+            --red: #ef6b6b;
+            --amber: #f6ad55;
+            --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            --radius-sm: 4px;
+            --radius-md: 6px;
+            --radius-lg: 10px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 14px;
+            line-height: 1.55;
+            min-height: 100vh;
+        }
+
+        .header {
+            border-bottom: 1px solid var(--border);
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--surface);
+        }
+
+        .back {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            text-decoration: none;
+            letter-spacing: 0.05em;
+            transition: color 0.15s;
+        }
+        .back:hover { color: var(--accent); }
+
+        .sep { color: var(--text-dim); }
+        .header-title { font-size: 14px; font-weight: 600; color: var(--text); }
+
+        .header-badge {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--accent);
+            background: var(--accent-dim);
+            border: 1px solid var(--accent-border);
+            border-radius: var(--radius-sm);
+            padding: 2px 7px;
+            letter-spacing: 0.06em;
+        }
+
+        .header-note {
+            margin-left: auto;
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-dim);
+            letter-spacing: 0.04em;
+        }
+
+        .page {
+            max-width: 760px;
+            margin: 0 auto;
+            padding: 28px 20px 64px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .card {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--surface);
+            overflow: hidden;
+        }
+
+        .card-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 11px 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .card-num {
+            font-family: var(--font-mono);
+            font-size: 9.5px;
+            color: var(--accent);
+            letter-spacing: 0.08em;
+        }
+
+        .card-name { font-size: 13px; font-weight: 600; flex: 1; }
+
+        .card-body {
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .field { display: flex; flex-direction: column; gap: 5px; }
+        .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
+
+        label {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-muted);
+            letter-spacing: 0.03em;
+        }
+
+        input[type="text"], textarea, select {
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-md);
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 12.5px;
+            padding: 8px 11px;
+            outline: none;
+            width: 100%;
+            transition: border-color 0.15s;
+        }
+        input:focus, textarea:focus, select:focus { border-color: var(--accent-border); }
+        input.bad { border-color: rgba(239, 107, 107, 0.5); }
+        select option { background: var(--surface-2); }
+
+        textarea { resize: vertical; min-height: 90px; line-height: 1.7; }
+
+        .kv {
+            display: grid;
+            grid-template-columns: 150px 1fr;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            overflow: hidden;
+        }
+        .kv > div {
+            padding: 7px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        .kv > div:nth-last-child(-n+2) { border-bottom: none; }
+        .kv .k { color: var(--text-dim); background: var(--surface-2); font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase; display: flex; align-items: center; }
+        .kv .v { color: var(--text); word-break: break-all; }
+        .kv .v b { color: var(--accent); font-weight: 600; }
+
+        .verdict {
+            font-family: var(--font-mono);
+            font-size: 12.5px;
+            padding: 10px 14px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border);
+            background: var(--surface-2);
+            color: var(--text-dim);
+        }
+        .verdict.yes { color: var(--accent); border-color: var(--accent-border); background: var(--accent-dim); }
+        .verdict.no  { color: var(--red); border-color: rgba(239, 107, 107, 0.35); background: rgba(239, 107, 107, 0.08); }
+
+        .mono-out {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            line-height: 1.8;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 10px 14px;
+            max-height: 340px;
+            overflow-y: auto;
+            white-space: pre;
+        }
+        .dim { color: var(--text-dim); }
+
+        .out-tools { display: flex; align-items: center; gap: 8px; }
+        .out-count {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-dim);
+            flex: 1;
+        }
+        .out-count b { color: var(--accent); }
+
+        .btn {
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            padding: 4px 9px;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s, background 0.15s;
+        }
+        .btn:hover { color: var(--text); background: var(--surface-3); }
+        .btn.flash { color: var(--accent); border-color: var(--accent-border); background: var(--accent-dim); }
+
+        .hint { font-size: 10.5px; color: var(--text-dim); font-family: var(--font-mono); line-height: 1.5; }
+        .err { font-size: 11px; color: var(--red); font-family: var(--font-mono); }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <a href="../" class="back">← hub</a>
+        <span class="sep">/</span>
+        <span class="header-title">Subnet Calculator</span>
+        <span class="header-badge">IPv4</span>
+        <span class="header-note">cidr math · client-side</span>
+    </header>
+
+    <div class="page">
+
+        <!-- 01 CIDR info -->
+        <div class="card">
+            <div class="card-head">
+                <span class="card-num">01</span>
+                <span class="card-name">CIDR info</span>
+            </div>
+            <div class="card-body">
+                <div class="field">
+                    <label for="info-in">Network (CIDR or IP/dotted-mask)</label>
+                    <input type="text" id="info-in" value="192.168.1.0/24" spellcheck="false">
+                    <span class="hint">accepts 10.0.0.0/8 · 172.16.0.5/255.255.240.0 · a bare IP is treated as /32</span>
+                </div>
+                <div id="info-out"></div>
+            </div>
+        </div>
+
+        <!-- 02 Contains -->
+        <div class="card">
+            <div class="card-head">
+                <span class="card-num">02</span>
+                <span class="card-name">Contains check</span>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="field">
+                        <label for="con-net">Network (CIDR)</label>
+                        <input type="text" id="con-net" value="10.0.0.0/8" spellcheck="false">
+                    </div>
+                    <div class="field">
+                        <label for="con-ip">IP or subnet to test</label>
+                        <input type="text" id="con-ip" value="10.42.13.37" spellcheck="false">
+                    </div>
+                </div>
+                <div id="con-out"></div>
+            </div>
+        </div>
+
+        <!-- 03 Split -->
+        <div class="card">
+            <div class="card-head">
+                <span class="card-num">03</span>
+                <span class="card-name">Split into subnets</span>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="field">
+                        <label for="split-net">Network (CIDR)</label>
+                        <input type="text" id="split-net" value="10.0.0.0/8" spellcheck="false">
+                    </div>
+                    <div class="field">
+                        <label for="split-prefix">Split into</label>
+                        <select id="split-prefix"></select>
+                    </div>
+                </div>
+                <div id="split-out"></div>
+            </div>
+        </div>
+
+        <!-- 04 Summarize -->
+        <div class="card">
+            <div class="card-head">
+                <span class="card-num">04</span>
+                <span class="card-name">Summarize / aggregate</span>
+            </div>
+            <div class="card-body">
+                <div class="field">
+                    <label for="sum-in">IPs and CIDRs, one per line</label>
+                    <textarea id="sum-in" spellcheck="false" placeholder="10.0.0.0/25
+10.0.0.128/25
+192.168.4.17
+192.168.4.18"></textarea>
+                    <span class="hint">merges overlapping and adjacent ranges into the minimal CIDR set</span>
+                </div>
+                <div id="sum-out"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // ── IPv4 primitives (all math on uint32 via >>> 0) ─────
+        function parseIP(s) {
+            const m = String(s).trim().match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+            if (!m) return null;
+            const o = m.slice(1).map(Number);
+            if (o.some(x => x > 255)) return null;
+            return ((o[0] << 24) | (o[1] << 16) | (o[2] << 8) | o[3]) >>> 0;
+        }
+
+        function ipToStr(n) {
+            return [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.');
+        }
+
+        function maskOf(prefix) {
+            return prefix === 0 ? 0 : (0xFFFFFFFF << (32 - prefix)) >>> 0;
+        }
+
+        function maskToPrefix(mask) {
+            // valid netmask = contiguous 1s then 0s
+            let p = 0, seenZero = false;
+            for (let i = 31; i >= 0; i--) {
+                const bit = (mask >>> i) & 1;
+                if (bit) { if (seenZero) return null; p++; }
+                else seenZero = true;
+            }
+            return p;
+        }
+
+        // "a.b.c.d/nn", "a.b.c.d/mask", or bare IP (=> /32)
+        function parseCIDR(s) {
+            s = String(s).trim();
+            if (!s) return null;
+            const slash = s.indexOf('/');
+            if (slash === -1) {
+                const ip = parseIP(s);
+                return ip === null ? null : { ip, prefix: 32 };
+            }
+            const ip = parseIP(s.slice(0, slash));
+            if (ip === null) return null;
+            const rest = s.slice(slash + 1).trim();
+            let prefix;
+            if (/^\d{1,2}$/.test(rest)) {
+                prefix = parseInt(rest, 10);
+                if (prefix > 32) return null;
+            } else {
+                const m = parseIP(rest);
+                if (m === null) return null;
+                prefix = maskToPrefix(m);
+                if (prefix === null) return null;
+            }
+            return { ip, prefix };
+        }
+
+        function networkOf(c) { return (c.ip & maskOf(c.prefix)) >>> 0; }
+        function broadcastOf(c) { return (networkOf(c) | (~maskOf(c.prefix) >>> 0)) >>> 0; }
+
+        function ipClassNote(ip) {
+            const a = ip >>> 24;
+            if (a === 10) return 'RFC1918 private';
+            if (a === 172 && ((ip >>> 16) & 255) >= 16 && ((ip >>> 16) & 255) <= 31) return 'RFC1918 private';
+            if (a === 192 && ((ip >>> 16) & 255) === 168) return 'RFC1918 private';
+            if (a === 127) return 'loopback';
+            if (a === 169 && ((ip >>> 16) & 255) === 254) return 'link-local';
+            if (a >= 224 && a <= 239) return 'multicast';
+            if (ip === 0xFFFFFFFF) return 'broadcast';
+            if (a === 100 && ((ip >>> 16) & 255) >= 64 && ((ip >>> 16) & 255) <= 127) return 'CGNAT (RFC6598)';
+            return 'public';
+        }
+
+        // ── helpers ─────────────────────────────────────────────
+        function g(id) { return document.getElementById(id); }
+
+        function flash(btn) {
+            const old = btn.textContent;
+            btn.textContent = 'Copied!';
+            btn.classList.add('flash');
+            setTimeout(() => { btn.textContent = old; btn.classList.remove('flash'); }, 1500);
+        }
+
+        function copyText(text, btn) {
+            navigator.clipboard.writeText(text).then(() => flash(btn));
+        }
+
+        function kv(rows) {
+            return '<div class="kv">' + rows.map(([k, v]) =>
+                `<div class="k">${k}</div><div class="v">${v}</div>`).join('') + '</div>';
+        }
+
+        function errBox(msg) { return `<span class="err">${msg}</span>`; }
+
+        function markValidity(input, ok) {
+            input.classList.toggle('bad', !ok && input.value.trim() !== '');
+        }
+
+        // ── 01 CIDR info ────────────────────────────────────────
+        function renderInfo() {
+            const input = g('info-in');
+            const c = parseCIDR(input.value);
+            markValidity(input, !!c);
+            if (!c) { g('info-out').innerHTML = errBox('Enter a valid IPv4 CIDR.'); return; }
+
+            const net = networkOf(c), bc = broadcastOf(c), mask = maskOf(c.prefix);
+            const total = c.prefix === 32 ? 1 : Math.pow(2, 32 - c.prefix);
+            let usable, firstHost, lastHost;
+            if (c.prefix >= 31) {
+                usable = total;            // /31 point-to-point (RFC3021), /32 host route
+                firstHost = net; lastHost = bc;
+            } else {
+                usable = total - 2;
+                firstHost = (net + 1) >>> 0; lastHost = (bc - 1) >>> 0;
+            }
+
+            g('info-out').innerHTML = kv([
+                ['Network', `<b>${ipToStr(net)}/${c.prefix}</b>`],
+                ['Netmask', `${ipToStr(mask)}`],
+                ['Wildcard', `${ipToStr((~mask) >>> 0)}`],
+                ['Broadcast', c.prefix >= 31 ? '<span class="dim">—</span>' : ipToStr(bc)],
+                ['Host range', `${ipToStr(firstHost)} – ${ipToStr(lastHost)}`],
+                ['Usable hosts', `<b>${usable.toLocaleString('en-US')}</b>${c.prefix === 31 ? ' (RFC3021 /31)' : c.prefix === 32 ? ' (host route)' : ''}`],
+                ['Total addresses', total.toLocaleString('en-US')],
+                ['Kind', ipClassNote(net)],
+            ]);
+        }
+
+        // ── 02 Contains ─────────────────────────────────────────
+        function renderContains() {
+            const netIn = g('con-net'), ipIn = g('con-ip');
+            const net = parseCIDR(netIn.value);
+            const test = parseCIDR(ipIn.value);
+            markValidity(netIn, !!net);
+            markValidity(ipIn, !!test);
+            const out = g('con-out');
+            if (!net || !test) { out.innerHTML = errBox('Enter a valid network and a valid IP/CIDR to test.'); return; }
+
+            const nStart = networkOf(net), nEnd = broadcastOf(net);
+            const tStart = networkOf(test), tEnd = broadcastOf(test);
+            const inside = tStart >= nStart && tEnd <= nEnd;
+            const label = test.prefix === 32 ? ipToStr(test.ip) : `${ipToStr(tStart)}/${test.prefix}`;
+            const netLabel = `${ipToStr(nStart)}/${net.prefix}`;
+
+            out.innerHTML = `<div class="verdict ${inside ? 'yes' : 'no'}">${
+                inside ? `✓ ${label} is inside ${netLabel}` : `✗ ${label} is NOT inside ${netLabel}`
+            }</div>`;
+        }
+
+        // ── 03 Split ────────────────────────────────────────────
+        const SPLIT_CAP = 1024;
+
+        function refreshSplitOptions() {
+            const c = parseCIDR(g('split-net').value);
+            const sel = g('split-prefix');
+            const prev = sel.value;
+            sel.innerHTML = '';
+            if (!c) return;
+            for (let p = c.prefix + 1; p <= 32; p++) {
+                const n = Math.pow(2, p - c.prefix);
+                const opt = document.createElement('option');
+                opt.value = p;
+                opt.textContent = `/${p}  (${n.toLocaleString('en-US')} subnets)`;
+                sel.appendChild(opt);
+            }
+            if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+        }
+
+        function renderSplit() {
+            const input = g('split-net');
+            const c = parseCIDR(input.value);
+            markValidity(input, !!c);
+            const out = g('split-out');
+            if (!c) { out.innerHTML = errBox('Enter a valid IPv4 CIDR.'); return; }
+            if (c.prefix === 32) { out.innerHTML = errBox('A /32 cannot be split.'); return; }
+
+            const target = parseInt(g('split-prefix').value, 10);
+            if (isNaN(target)) { out.innerHTML = ''; return; }
+
+            const count = Math.pow(2, target - c.prefix);
+            const step = Math.pow(2, 32 - target);
+            const net = networkOf(c);
+            const shown = Math.min(count, SPLIT_CAP);
+            const lines = [];
+            for (let i = 0; i < shown; i++) {
+                const start = (net + i * step) >>> 0;
+                const end = (start + step - 1) >>> 0;
+                lines.push(`${(ipToStr(start) + '/' + target).padEnd(20)} ${ipToStr(start)} – ${ipToStr(end)}`);
+            }
+            const truncated = count > SPLIT_CAP
+                ? `\n<span class="dim">… ${(count - SPLIT_CAP).toLocaleString('en-US')} more not shown (capped at ${SPLIT_CAP})</span>` : '';
+
+            out.innerHTML = `
+                <div class="out-tools">
+                    <span class="out-count"><b>${count.toLocaleString('en-US')}</b> × /${target} subnets</span>
+                    <button class="btn" onclick="copySplit(this)">Copy</button>
+                </div>
+                <div class="mono-out" style="margin-top:8px">${lines.join('\n')}${truncated}</div>`;
+        }
+
+        function copySplit(btn) {
+            const c = parseCIDR(g('split-net').value);
+            const target = parseInt(g('split-prefix').value, 10);
+            if (!c || isNaN(target)) return;
+            const count = Math.min(Math.pow(2, target - c.prefix), SPLIT_CAP);
+            const step = Math.pow(2, 32 - target);
+            const net = networkOf(c);
+            const lines = [];
+            for (let i = 0; i < count; i++) {
+                lines.push(ipToStr((net + i * step) >>> 0) + '/' + target);
+            }
+            copyText(lines.join('\n'), btn);
+        }
+
+        // ── 04 Summarize ────────────────────────────────────────
+        function rangeToCIDRs(start, end) {
+            const out = [];
+            while (start <= end) {
+                // largest block aligned at `start` that fits in [start, end]
+                let maxAlign = 0;
+                while (maxAlign < 32 && ((start / Math.pow(2, maxAlign)) % 2) === 0) maxAlign++;
+                const maxFit = Math.floor(Math.log2(end - start + 1));
+                const bits = Math.min(maxAlign, maxFit);
+                out.push(ipToStr(start >>> 0) + '/' + (32 - bits));
+                start += Math.pow(2, bits);
+                if (start > 0xFFFFFFFF) break;
+            }
+            return out;
+        }
+
+        function renderSummary() {
+            const out = g('sum-out');
+            const lines = g('sum-in').value.split('\n').map(l => l.trim()).filter(Boolean);
+            if (!lines.length) { out.innerHTML = ''; return; }
+
+            const ranges = [];
+            const bad = [];
+            for (const line of lines) {
+                const c = parseCIDR(line);
+                if (!c) { bad.push(line); continue; }
+                ranges.push([networkOf(c), broadcastOf(c)]);
+            }
+            if (!ranges.length) { out.innerHTML = errBox('No valid IPs/CIDRs found.'); return; }
+
+            // merge overlapping + adjacent, then re-emit as minimal CIDRs
+            ranges.sort((a, b) => a[0] - b[0]);
+            const merged = [ranges[0].slice()];
+            for (let i = 1; i < ranges.length; i++) {
+                const last = merged[merged.length - 1];
+                if (ranges[i][0] <= last[1] + 1) last[1] = Math.max(last[1], ranges[i][1]);
+                else merged.push(ranges[i].slice());
+            }
+            const cidrs = merged.flatMap(([s, e]) => rangeToCIDRs(s, e));
+            lastSummary = cidrs.join('\n');
+
+            out.innerHTML = `
+                <div class="out-tools">
+                    <span class="out-count"><b>${lines.length - bad.length}</b> input${lines.length - bad.length === 1 ? '' : 's'} → <b>${cidrs.length}</b> CIDR${cidrs.length === 1 ? '' : 's'}${bad.length ? ` · <span style="color:var(--red)">${bad.length} line${bad.length === 1 ? '' : 's'} skipped</span>` : ''}</span>
+                    <button class="btn" onclick="copyText(lastSummary, this)">Copy</button>
+                </div>
+                <div class="mono-out" style="margin-top:8px">${cidrs.join('\n')}</div>`;
+        }
+        let lastSummary = '';
+
+        // ── wiring ──────────────────────────────────────────────
+        g('info-in').addEventListener('input', renderInfo);
+        g('con-net').addEventListener('input', renderContains);
+        g('con-ip').addEventListener('input', renderContains);
+        g('split-net').addEventListener('input', () => { refreshSplitOptions(); renderSplit(); });
+        g('split-prefix').addEventListener('change', renderSplit);
+        g('sum-in').addEventListener('input', renderSummary);
+
+        renderInfo();
+        renderContains();
+        refreshSplitOptions();
+        g('split-prefix').value = '10';
+        renderSplit();
+        renderSummary();
+    </script>
+</body>
+</html>

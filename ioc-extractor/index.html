@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IOC Extractor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0d0f14;
+            --surface: #14171f;
+            --surface-2: #1c2030;
+            --surface-3: #252a3d;
+            --border: rgba(255, 255, 255, 0.07);
+            --border-strong: rgba(255, 255, 255, 0.14);
+            --text: #e8eaf0;
+            --text-muted: #9298a8;
+            --text-dim: #5c6275;
+            --accent: #4fd1c5;
+            --accent-dim: rgba(79, 209, 197, 0.12);
+            --accent-border: rgba(79, 209, 197, 0.30);
+            --amber: #f6ad55;
+            --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            --radius-sm: 4px;
+            --radius-md: 6px;
+            --radius-lg: 10px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 14px;
+            line-height: 1.55;
+            min-height: 100vh;
+        }
+
+        .header {
+            border-bottom: 1px solid var(--border);
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--surface);
+        }
+
+        .back {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            text-decoration: none;
+            letter-spacing: 0.05em;
+            transition: color 0.15s;
+        }
+        .back:hover { color: var(--accent); }
+
+        .sep { color: var(--text-dim); }
+
+        .header-title { font-size: 14px; font-weight: 600; color: var(--text); }
+
+        .header-badge {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--accent);
+            background: var(--accent-dim);
+            border: 1px solid var(--accent-border);
+            border-radius: var(--radius-sm);
+            padding: 2px 7px;
+            letter-spacing: 0.06em;
+        }
+
+        .header-count {
+            margin-left: auto;
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-dim);
+            letter-spacing: 0.04em;
+        }
+        .header-count b { color: var(--accent); font-weight: 600; }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: minmax(340px, 44%) 1fr;
+            height: calc(100vh - 49px);
+        }
+
+        @media (max-width: 860px) {
+            .workspace { grid-template-columns: 1fr; height: auto; }
+            .results-panel { border-left: none; border-top: 1px solid var(--border); min-height: 400px; }
+            .input-panel textarea { min-height: 220px; }
+        }
+
+        .input-panel {
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border);
+        }
+
+        .panel-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+            flex-shrink: 0;
+            flex-wrap: wrap;
+        }
+
+        .panel-title {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.10em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            flex: 1;
+        }
+
+        .btn {
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            padding: 4px 9px;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s, background 0.15s;
+        }
+        .btn:hover { color: var(--text); border-color: var(--border-strong); background: var(--surface-3); }
+        .btn.flash { color: var(--accent); border-color: var(--accent-border); background: var(--accent-dim); }
+
+        #input {
+            flex: 1;
+            width: 100%;
+            background: transparent;
+            border: none;
+            outline: none;
+            resize: none;
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 12px;
+            line-height: 1.7;
+            padding: 16px 18px;
+        }
+        #input::placeholder { color: var(--text-dim); }
+
+        .results-panel {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* fang toggle */
+        .fang-toggle {
+            display: flex;
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+        }
+        .fang-toggle button {
+            background: var(--surface-2);
+            border: none;
+            color: var(--text-dim);
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            padding: 4px 9px;
+            cursor: pointer;
+            transition: color 0.15s, background 0.15s;
+        }
+        .fang-toggle button.active {
+            background: var(--accent-dim);
+            color: var(--accent);
+        }
+
+        .results-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .empty-note {
+            color: var(--text-dim);
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            font-style: italic;
+            padding: 24px;
+            text-align: center;
+        }
+
+        .cat {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--surface);
+            overflow: hidden;
+        }
+
+        .cat-head {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 8px 12px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .cat-name {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            flex: 1;
+        }
+
+        .cat-count {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--accent);
+            background: var(--accent-dim);
+            border: 1px solid var(--accent-border);
+            border-radius: 9px;
+            padding: 1px 8px;
+        }
+
+        .cat-list {
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            line-height: 1.85;
+            padding: 8px 12px;
+            color: var(--text);
+            word-break: break-all;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+        .cat-list div:hover { color: var(--accent); }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <a href="../" class="back">← hub</a>
+        <span class="sep">/</span>
+        <span class="header-title">IOC Extractor</span>
+        <span class="header-badge">CTI</span>
+        <span class="header-count"><b id="total">0</b> indicators</span>
+    </header>
+
+    <div class="workspace">
+        <div class="input-panel">
+            <div class="panel-head">
+                <span class="panel-title">Paste text</span>
+                <button class="btn" onclick="loadSample()">Sample</button>
+                <button class="btn" onclick="clearInput()">Clear</button>
+            </div>
+            <textarea id="input" spellcheck="false"
+                placeholder="Paste a report, email, log excerpt, or any blob of text.
+
+Defanged indicators (hxxp, [.], [at], [dot]) are refanged automatically before extraction. Extraction runs as you type."></textarea>
+        </div>
+
+        <div class="results-panel">
+            <div class="panel-head">
+                <span class="panel-title">Indicators</span>
+                <div class="fang-toggle">
+                    <button id="mode-refanged" class="active" onclick="setMode('refanged')">Refanged</button>
+                    <button id="mode-defanged" onclick="setMode('defanged')">Defanged</button>
+                </div>
+                <button class="btn" id="copy-all-btn" onclick="copyAll(this)">Copy all</button>
+                <button class="btn" onclick="exportCSV()">CSV</button>
+                <button class="btn" onclick="exportJSON()">JSON</button>
+            </div>
+            <div class="results-body" id="results">
+                <div class="empty-note">No indicators yet — paste something on the left.</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ── Categories ──────────────────────────────────────────
+        const CATS = [
+            { key: 'urls',    label: 'URLs' },
+            { key: 'domains', label: 'Domains' },
+            { key: 'ipv4',    label: 'IPv4' },
+            { key: 'ipv6',    label: 'IPv6' },
+            { key: 'emails',  label: 'Emails' },
+            { key: 'md5',     label: 'MD5' },
+            { key: 'sha1',    label: 'SHA-1' },
+            { key: 'sha256',  label: 'SHA-256' },
+            { key: 'cves',    label: 'CVEs' },
+        ];
+
+        // Known TLDs — keeps filenames (report.docx) and version strings out
+        // of the domain list. Extend as needed.
+        const TLDS = new Set(('com net org edu gov mil int io co uk de fr nl ru cn jp kr in br au ca ch at be dk es fi gr ' +
+            'hu ie il it mx no nz pl pt se sg tr tw ua us za info biz name mobi xyz online site top club vip shop app dev ' +
+            'cloud tech store live me tv cc ws su eu asia pro onion link click download stream loan work men party trade ' +
+            'date racing win review country science gq ml cf ga tk pw icu buzz sh ly to am fm is ai gg st id my ph th vn ' +
+            'sa ae ir pk kz by cz sk ro bg rs hr si lt lv ee ar cl pe ve uy ng ke eg ma').split(' '));
+
+        let iocs = {};        // { catKey: [values] }
+        let mode = 'refanged';
+
+        // ── Refang ──────────────────────────────────────────────
+        function refang(text) {
+            return text
+                .replace(/h[xX]{2}p(s?)/gi, 'http$1')
+                .replace(/\s?[\[\({]\s?(?:\.|dot)\s?[\]\)}]\s?/gi, '.')
+                .replace(/\s?[\[\({]\s?(?:@|at)\s?[\]\)}]\s?/gi, '@')
+                .replace(/\[:\/\/\]/g, '://')
+                .replace(/\[:\]/g, ':');
+        }
+
+        // ── Defang (display) ────────────────────────────────────
+        function defang(value, cat) {
+            switch (cat) {
+                case 'urls':
+                    return value.replace(/^http/i, 'hxxp').replace(/\./g, '[.]');
+                case 'domains':
+                case 'ipv4':
+                    return value.replace(/\./g, '[.]');
+                case 'ipv6':
+                    return value.replace(/:/g, '[:]');
+                case 'emails':
+                    return value.replace(/@/, '[at]').replace(/\./g, '[.]');
+                default:
+                    return value;
+            }
+        }
+
+        // ── Extraction ──────────────────────────────────────────
+        const RE = {
+            url:    /\b(?:https?|ftp):\/\/[^\s"'<>()\[\]{}]+/gi,
+            ipv4:   /\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b/g,
+            ipv6:   /\b[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,7}\b/gi,
+            email:  /\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,24}\b/gi,
+            domain: /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b/gi,
+            sha256: /\b[a-f0-9]{64}\b/gi,
+            sha1:   /\b[a-f0-9]{40}\b/gi,
+            md5:    /\b[a-f0-9]{32}\b/gi,
+            cve:    /\bCVE-\d{4}-\d{4,7}\b/gi,
+        };
+
+        function matches(text, re) {
+            return text.match(re) || [];
+        }
+
+        function dedupe(arr) {
+            const seen = new Set();
+            const out = [];
+            for (const v of arr) {
+                const k = v.toLowerCase();
+                if (!seen.has(k)) { seen.add(k); out.push(v); }
+            }
+            return out;
+        }
+
+        function isValidIPv6(s) {
+            // Reject times/MACs and junk: need '::' or a full 8-group form,
+            // and each group must be valid hex of 1-4 chars.
+            const dbl = s.indexOf('::') !== -1;
+            if ((s.match(/::/g) || []).length > 1) return false;
+            const groups = s.split(/::?/).filter(g => g.length);
+            if (groups.some(g => !/^[0-9a-f]{1,4}$/i.test(g))) return false;
+            if (dbl) return groups.length >= 1 && groups.length <= 7;
+            return groups.length === 8;
+        }
+
+        function tldOK(host) {
+            const tld = host.slice(host.lastIndexOf('.') + 1).toLowerCase();
+            return TLDS.has(tld);
+        }
+
+        function hostnameOf(url) {
+            const m = url.match(/^(?:https?|ftp):\/\/([^\/:?#]+)/i);
+            return m ? m[1] : '';
+        }
+
+        function stripTrail(s) {
+            return s.replace(/[.,;:!?'")\]]+$/, '');
+        }
+
+        function extract(raw) {
+            const text = refang(raw);
+            const out = {};
+
+            out.urls = dedupe(matches(text, RE.url).map(stripTrail));
+
+            const ipv4All = matches(text, RE.ipv4);
+            out.ipv4 = dedupe(ipv4All);
+            const ipv4Set = new Set(out.ipv4);
+
+            out.ipv6 = dedupe(matches(text, RE.ipv6).filter(isValidIPv6));
+
+            out.emails = dedupe(matches(text, RE.email).map(e => e.toLowerCase()));
+
+            // Domains: standalone + URL hosts + email domains, minus IPs and unknown TLDs
+            const domainRaw = matches(text, RE.domain).map(d => d.toLowerCase());
+            const urlHosts = out.urls.map(hostnameOf).filter(h => h && !ipv4Set.has(h)).map(h => h.toLowerCase());
+            const emailDomains = out.emails.map(e => e.slice(e.indexOf('@') + 1));
+            out.domains = dedupe([...domainRaw, ...urlHosts, ...emailDomains])
+                .filter(d => !ipv4Set.has(d) && tldOK(d));
+
+            out.sha256 = dedupe(matches(text, RE.sha256).map(h => h.toLowerCase()));
+            out.sha1   = dedupe(matches(text, RE.sha1).map(h => h.toLowerCase()));
+            out.md5    = dedupe(matches(text, RE.md5).map(h => h.toLowerCase()));
+            out.cves   = dedupe(matches(text, RE.cve).map(c => c.toUpperCase()));
+
+            return out;
+        }
+
+        // ── Rendering ───────────────────────────────────────────
+        function esc(s) {
+            return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function display(v, cat) {
+            return mode === 'defanged' ? defang(v, cat) : v;
+        }
+
+        function render() {
+            const box = document.getElementById('results');
+            const total = CATS.reduce((n, c) => n + (iocs[c.key] || []).length, 0);
+            document.getElementById('total').textContent = total;
+
+            if (!total) {
+                box.innerHTML = '<div class="empty-note">No indicators yet — paste something on the left.</div>';
+                return;
+            }
+
+            box.innerHTML = CATS.filter(c => (iocs[c.key] || []).length).map(c => {
+                const vals = iocs[c.key];
+                return `<div class="cat">
+                    <div class="cat-head">
+                        <span class="cat-name">${c.label}</span>
+                        <span class="cat-count">${vals.length}</span>
+                        <button class="btn" onclick="copyCat('${c.key}', this)">Copy</button>
+                    </div>
+                    <div class="cat-list">${vals.map(v => '<div>' + esc(display(v, c.key)) + '</div>').join('')}</div>
+                </div>`;
+            }).join('');
+        }
+
+        // ── Actions ─────────────────────────────────────────────
+        let timer = null;
+        document.getElementById('input').addEventListener('input', () => {
+            clearTimeout(timer);
+            timer = setTimeout(run, 300);
+        });
+
+        function run() {
+            iocs = extract(document.getElementById('input').value);
+            render();
+        }
+
+        function setMode(m) {
+            mode = m;
+            document.getElementById('mode-refanged').classList.toggle('active', m === 'refanged');
+            document.getElementById('mode-defanged').classList.toggle('active', m === 'defanged');
+            render();
+        }
+
+        function flash(btn, label) {
+            const old = btn.textContent;
+            btn.textContent = label;
+            btn.classList.add('flash');
+            setTimeout(() => { btn.textContent = old; btn.classList.remove('flash'); }, 1500);
+        }
+
+        function copyCat(key, btn) {
+            const text = iocs[key].map(v => display(v, key)).join('\n');
+            navigator.clipboard.writeText(text).then(() => flash(btn, 'Copied!'));
+        }
+
+        function copyAll(btn) {
+            const parts = [];
+            for (const c of CATS) {
+                const vals = iocs[c.key] || [];
+                if (!vals.length) continue;
+                parts.push('# ' + c.label);
+                parts.push(...vals.map(v => display(v, c.key)));
+                parts.push('');
+            }
+            navigator.clipboard.writeText(parts.join('\n').trim()).then(() => flash(btn, 'Copied!'));
+        }
+
+        function downloadFile(name, content, type) {
+            const blob = new Blob([content], { type });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = name;
+            a.click();
+            URL.revokeObjectURL(a.href);
+        }
+
+        function exportCSV() {
+            const rows = ['type,value'];
+            for (const c of CATS) {
+                for (const v of iocs[c.key] || []) {
+                    const d = display(v, c.key);
+                    rows.push(c.key + ',' + (d.includes(',') || d.includes('"') ? '"' + d.replace(/"/g, '""') + '"' : d));
+                }
+            }
+            downloadFile('iocs.csv', rows.join('\n'), 'text/csv');
+        }
+
+        function exportJSON() {
+            const obj = {};
+            for (const c of CATS) {
+                obj[c.key] = (iocs[c.key] || []).map(v => display(v, c.key));
+            }
+            downloadFile('iocs.json', JSON.stringify(obj, null, 2), 'application/json');
+        }
+
+        function clearInput() {
+            document.getElementById('input').value = '';
+            run();
+        }
+
+        function loadSample() {
+            document.getElementById('input').value =
+`Phishing campaign observed on 2026-06-28 targeting finance staff.
+
+Initial lure sent from billing[at]invoice-portal[.]net with subject "Overdue payment".
+Link in body: hxxps://invoice-portal[.]net/track/a.php?id=443
+Redirects through 185.220.101[.]42 to hxxp://cdn-fastly[.]top/payload.bin
+
+Dropper (report attached as report.docx, macro-enabled):
+  MD5:    d41d8cd98f00b204e9800998ecf8427e
+  SHA-1:  da39a3ee5e6b4b0d3255bfef95601890afd80709
+  SHA256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+
+C2 heartbeat to 2001:db8:85a3::8a2e:370:7334 every 300s.
+Exploits CVE-2024-21412 when Office is unpatched.`;
+            run();
+        }
+    </script>
+</body>
+</html>

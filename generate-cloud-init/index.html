@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloud-init Generator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0d0f14;
+            --surface: #14171f;
+            --surface-2: #1c2030;
+            --surface-3: #252a3d;
+            --border: rgba(255, 255, 255, 0.07);
+            --border-strong: rgba(255, 255, 255, 0.14);
+            --text: #e8eaf0;
+            --text-muted: #9298a8;
+            --text-dim: #5c6275;
+            --accent: #f6ad55;
+            --accent-dim: rgba(246, 173, 85, 0.12);
+            --accent-border: rgba(246, 173, 85, 0.30);
+            --red: #ef6b6b;
+            --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            --radius-sm: 4px;
+            --radius-md: 6px;
+            --radius-lg: 10px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 14px;
+            line-height: 1.55;
+            min-height: 100vh;
+        }
+
+        .header {
+            border-bottom: 1px solid var(--border);
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--surface);
+        }
+
+        .back {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            text-decoration: none;
+            letter-spacing: 0.05em;
+            transition: color 0.15s;
+        }
+        .back:hover { color: var(--accent); }
+
+        .sep { color: var(--text-dim); }
+        .header-title { font-size: 14px; font-weight: 600; color: var(--text); }
+
+        .header-badge {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--accent);
+            background: var(--accent-dim);
+            border: 1px solid var(--accent-border);
+            border-radius: var(--radius-sm);
+            padding: 2px 7px;
+            letter-spacing: 0.06em;
+        }
+
+        .header-filename {
+            margin-left: auto;
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-dim);
+            letter-spacing: 0.04em;
+        }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: 420px 1fr;
+            height: calc(100vh - 49px);
+        }
+
+        @media (max-width: 860px) {
+            .workspace { grid-template-columns: 1fr; height: auto; }
+            .output-panel { min-height: 400px; border-top: 1px solid var(--border); border-left: none; }
+        }
+
+        .form-panel {
+            border-right: 1px solid var(--border);
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .section {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+        }
+
+        .sec-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            background: var(--surface);
+            cursor: pointer;
+            user-select: none;
+        }
+        .sec-head:hover { background: var(--surface-2); }
+
+        .sec-num {
+            font-family: var(--font-mono);
+            font-size: 9.5px;
+            color: var(--accent);
+            letter-spacing: 0.08em;
+            width: 16px;
+        }
+
+        .sec-name { font-size: 12.5px; font-weight: 500; color: var(--text); flex: 1; }
+
+        .sec-chevron { color: var(--text-dim); font-size: 10px; transition: transform 0.18s; }
+        .section.collapsed .sec-chevron { transform: rotate(-90deg); }
+        .section.collapsed .sec-body { display: none; }
+
+        .sec-body {
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 11px;
+        }
+
+        .field { display: flex; flex-direction: column; gap: 5px; }
+        .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+        label {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-muted);
+            letter-spacing: 0.03em;
+        }
+
+        .hint {
+            font-size: 10.5px;
+            color: var(--text-dim);
+            line-height: 1.45;
+            font-family: var(--font-mono);
+        }
+
+        input[type="text"], select, textarea {
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-md);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 12.5px;
+            padding: 7px 10px;
+            outline: none;
+            width: 100%;
+            transition: border-color 0.15s;
+        }
+        input:focus, select:focus, textarea:focus { border-color: var(--accent-border); }
+        select option { background: var(--surface-2); }
+
+        textarea {
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            resize: vertical;
+            min-height: 60px;
+            line-height: 1.6;
+        }
+
+        .toggle-row { display: flex; align-items: center; gap: 9px; }
+
+        .toggle {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 34px;
+            height: 18px;
+            background: var(--surface-3);
+            border: 1px solid var(--border-strong);
+            border-radius: 9px;
+            cursor: pointer;
+            position: relative;
+            flex-shrink: 0;
+            transition: background 0.18s, border-color 0.18s;
+        }
+        .toggle::after {
+            content: '';
+            position: absolute;
+            top: 2px; left: 2px;
+            width: 12px; height: 12px;
+            background: var(--text-dim);
+            border-radius: 50%;
+            transition: transform 0.18s, background 0.18s;
+        }
+        .toggle:checked { background: var(--accent-dim); border-color: var(--accent-border); }
+        .toggle:checked::after { transform: translateX(16px); background: var(--accent); }
+
+        .toggle-label { font-size: 12.5px; color: var(--text-muted); cursor: pointer; }
+
+        /* repeatable items */
+        .item {
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-md);
+            padding: 11px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background: var(--surface-2);
+            position: relative;
+        }
+        .item input, .item textarea { background: var(--surface-3); }
+
+        .item-head {
+            display: flex;
+            align-items: center;
+        }
+        .item-title {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            flex: 1;
+        }
+        .item-remove {
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            font-size: 13px;
+            cursor: pointer;
+            padding: 0 4px;
+            border-radius: var(--radius-sm);
+        }
+        .item-remove:hover { color: var(--red); }
+
+        .add-btn {
+            background: var(--surface-2);
+            border: 1px dashed var(--border-strong);
+            border-radius: var(--radius-md);
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            letter-spacing: 0.07em;
+            text-transform: uppercase;
+            padding: 8px;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .add-btn:hover { color: var(--accent); border-color: var(--accent-border); }
+
+        .gen-btn {
+            background: var(--accent-dim);
+            border: 1px solid var(--accent-border);
+            border-radius: var(--radius-md);
+            color: var(--accent);
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+            padding: 10px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 4px;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .gen-btn:hover { background: rgba(246, 173, 85, 0.2); border-color: rgba(246, 173, 85, 0.5); }
+
+        .output-panel {
+            display: flex;
+            flex-direction: column;
+            border-left: 1px solid var(--border);
+        }
+
+        .out-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+            flex-shrink: 0;
+        }
+
+        .out-title {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.10em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            flex: 1;
+        }
+
+        .out-btn {
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            padding: 4px 9px;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s, background 0.15s;
+        }
+        .out-btn:hover { color: var(--text); border-color: var(--border-strong); }
+        .out-btn.flash { color: var(--accent); border-color: var(--accent-border); background: var(--accent-dim); }
+
+        pre#output {
+            flex: 1;
+            overflow: auto;
+            padding: 18px 20px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            line-height: 1.75;
+            color: var(--text);
+            white-space: pre;
+            background: transparent;
+        }
+
+        .ph { color: var(--text-dim); font-style: italic; }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <a href="../" class="back">← hub</a>
+        <span class="sep">/</span>
+        <span class="header-title">Cloud-init Generator</span>
+        <span class="header-badge">cloud-init</span>
+        <span class="header-filename">user-data</span>
+    </header>
+
+    <div class="workspace">
+        <div class="form-panel">
+
+            <div class="section" id="s-system">
+                <div class="sec-head" onclick="toggleSec('s-system')">
+                    <span class="sec-num">01</span>
+                    <span class="sec-name">System</span>
+                    <span class="sec-chevron">▾</span>
+                </div>
+                <div class="sec-body">
+                    <div class="row">
+                        <div class="field">
+                            <label for="hostname">Hostname</label>
+                            <input type="text" id="hostname" value="node01">
+                        </div>
+                        <div class="field">
+                            <label for="timezone">Timezone</label>
+                            <input type="text" id="timezone" value="UTC">
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label for="locale">Locale <span style="color:var(--text-dim);font-weight:400">(optional)</span></label>
+                        <input type="text" id="locale" placeholder="en_US.UTF-8">
+                    </div>
+                </div>
+            </div>
+
+            <div class="section" id="s-packages">
+                <div class="sec-head" onclick="toggleSec('s-packages')">
+                    <span class="sec-num">02</span>
+                    <span class="sec-name">Packages & Updates</span>
+                    <span class="sec-chevron">▾</span>
+                </div>
+                <div class="sec-body">
+                    <div class="field">
+                        <div class="toggle-row">
+                            <input type="checkbox" class="toggle" id="pkg-update" checked>
+                            <label class="toggle-label" for="pkg-update">package_update (apt update)</label>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <div class="toggle-row">
+                            <input type="checkbox" class="toggle" id="pkg-upgrade" checked>
+                            <label class="toggle-label" for="pkg-upgrade">package_upgrade (apt upgrade)</label>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <div class="toggle-row">
+                            <input type="checkbox" class="toggle" id="pkg-reboot">
+                            <label class="toggle-label" for="pkg-reboot">package_reboot_if_required</label>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label for="packages">Packages <span style="color:var(--text-dim);font-weight:400">(one per line)</span></label>
+                        <textarea id="packages" placeholder="qemu-guest-agent
+curl
+vim"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section collapsed" id="s-users">
+                <div class="sec-head" onclick="toggleSec('s-users')">
+                    <span class="sec-num">03</span>
+                    <span class="sec-name">Users</span>
+                    <span class="sec-chevron">▾</span>
+                </div>
+                <div class="sec-body">
+                    <div class="field">
+                        <div class="toggle-row">
+                            <input type="checkbox" class="toggle" id="keep-default-user">
+                            <label class="toggle-label" for="keep-default-user">Keep distro default user (<code style="font-family:var(--font-mono);font-size:11px">- default</code>)</label>
+                        </div>
+                    </div>
+                    <div id="users-box" style="display:flex;flex-direction:column;gap:10px"></div>
+                    <button class="add-btn" onclick="addUser()">＋ add user</button>
+                </div>
+            </div>
+
+            <div class="section collapsed" id="s-ssh">
+                <div class="sec-head" onclick="toggleSec('s-ssh')">
+                    <span class="sec-num">04</span>
+                    <span class="sec-name">SSH</span>
+                    <span class="sec-chevron">▾</span>
+                </div>
+                <div class="sec-body">
+                    <div class="field">
+                        <div class="toggle-row">
+                            <input type="checkbox" class="toggle" id="ssh-pwauth">
+                            <label class="toggle-label" for="ssh-pwauth">ssh_pwauth (allow password auth)</label>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <div class="toggle-row">
+                            <input type="checkbox" class="toggle" id="disable-root" checked>
+                            <label class="toggle-label" for="disable-root">disable_root</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section collapsed" id="s-files">
+                <div class="sec-head" onclick="toggleSec('s-files')">
+                    <span class="sec-num">05</span>
+                    <span class="sec-name">write_files</span>
+                    <span class="sec-chevron">▾</span>
+                </div>
+                <div class="sec-body">
+                    <div id="files-box" style="display:flex;flex-direction:column;gap:10px"></div>
+                    <button class="add-btn" onclick="addFile()">＋ add file</button>
+                </div>
+            </div>
+
+            <div class="section collapsed" id="s-runcmd">
+                <div class="sec-head" onclick="toggleSec('s-runcmd')">
+                    <span class="sec-num">06</span>
+                    <span class="sec-name">runcmd & Final</span>
+                    <span class="sec-chevron">▾</span>
+                </div>
+                <div class="sec-body">
+                    <div class="field">
+                        <label for="runcmd">Commands <span style="color:var(--text-dim);font-weight:400">(one per line, run once at first boot)</span></label>
+                        <textarea id="runcmd" placeholder="systemctl enable --now qemu-guest-agent
+touch /etc/provisioned"></textarea>
+                    </div>
+                    <div class="field">
+                        <label for="final-message">final_message <span style="color:var(--text-dim);font-weight:400">(optional)</span></label>
+                        <input type="text" id="final-message" placeholder="cloud-init done, up after $UPTIME s">
+                    </div>
+                </div>
+            </div>
+
+            <button class="gen-btn" onclick="generate()">Generate user-data</button>
+        </div>
+
+        <div class="output-panel">
+            <div class="out-header">
+                <span class="out-title">Output</span>
+                <button class="out-btn" id="copy-btn" onclick="copyOut()">Copy</button>
+                <button class="out-btn" onclick="downloadOut()">Download</button>
+            </div>
+            <pre id="output"><span class="ph"># Fill in the form and click Generate</span></pre>
+        </div>
+    </div>
+
+    <script>
+        function toggleSec(id) {
+            document.getElementById(id).classList.toggle('collapsed');
+        }
+
+        function g(id) { return document.getElementById(id); }
+        function v(id) { return g(id).value.trim(); }
+        function ck(id) { return g(id).checked; }
+        function lines(id) { return v(id).split('\n').map(l => l.trim()).filter(Boolean); }
+
+        // ── repeatable: users ───────────────────────────────────
+        let userSeq = 0;
+        function addUser(preset) {
+            preset = preset || {};
+            const id = ++userSeq;
+            const el = document.createElement('div');
+            el.className = 'item user-item';
+            el.innerHTML = `
+                <div class="item-head">
+                    <span class="item-title">user</span>
+                    <button class="item-remove" title="Remove" onclick="this.closest('.item').remove()">✕</button>
+                </div>
+                <div class="row">
+                    <div class="field">
+                        <label>Name</label>
+                        <input type="text" class="u-name" value="${preset.name || ''}" placeholder="admin">
+                    </div>
+                    <div class="field">
+                        <label>Shell</label>
+                        <input type="text" class="u-shell" value="${preset.shell || '/bin/bash'}">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="field">
+                        <label>Groups <span style="color:var(--text-dim);font-weight:400">(comma-sep)</span></label>
+                        <input type="text" class="u-groups" value="${preset.groups || 'sudo'}">
+                    </div>
+                    <div class="field">
+                        <label>Gecos <span style="color:var(--text-dim);font-weight:400">(optional)</span></label>
+                        <input type="text" class="u-gecos" placeholder="Admin User">
+                    </div>
+                </div>
+                <div class="field">
+                    <div class="toggle-row">
+                        <input type="checkbox" class="toggle u-sudo" id="u-sudo-${id}" checked>
+                        <label class="toggle-label" for="u-sudo-${id}">Passwordless sudo (ALL=(ALL) NOPASSWD:ALL)</label>
+                    </div>
+                </div>
+                <div class="field">
+                    <div class="toggle-row">
+                        <input type="checkbox" class="toggle u-lock" id="u-lock-${id}" checked>
+                        <label class="toggle-label" for="u-lock-${id}">lock_passwd (key-only login)</label>
+                    </div>
+                </div>
+                <div class="field">
+                    <label>Password hash <span style="color:var(--text-dim);font-weight:400">(optional)</span></label>
+                    <input type="text" class="u-passwd" placeholder="$6$rounds=4096$salt$hash...">
+                    <span class="hint">openssl passwd -6 'yourpassword'</span>
+                </div>
+                <div class="field">
+                    <label>SSH authorized keys <span style="color:var(--text-dim);font-weight:400">(one per line)</span></label>
+                    <textarea class="u-keys" placeholder="ssh-ed25519 AAAA... user@host"></textarea>
+                </div>`;
+            g('users-box').appendChild(el);
+        }
+
+        // ── repeatable: write_files ─────────────────────────────
+        function addFile() {
+            const el = document.createElement('div');
+            el.className = 'item file-item';
+            el.innerHTML = `
+                <div class="item-head">
+                    <span class="item-title">file</span>
+                    <button class="item-remove" title="Remove" onclick="this.closest('.item').remove()">✕</button>
+                </div>
+                <div class="field">
+                    <label>Path</label>
+                    <input type="text" class="f-path" placeholder="/etc/sysctl.d/99-custom.conf">
+                </div>
+                <div class="row">
+                    <div class="field">
+                        <label>Permissions</label>
+                        <input type="text" class="f-perms" value="0644">
+                    </div>
+                    <div class="field">
+                        <label>Owner</label>
+                        <input type="text" class="f-owner" value="root:root">
+                    </div>
+                </div>
+                <div class="field">
+                    <label>Content</label>
+                    <textarea class="f-content" placeholder="net.ipv4.ip_forward = 1"></textarea>
+                </div>`;
+            g('files-box').appendChild(el);
+        }
+
+        // ── minimal YAML emitters ───────────────────────────────
+        function yamlStr(s) {
+            s = String(s);
+            if (s === '') return "''";
+            if (/^[A-Za-z0-9._\/@:+=-]+$/.test(s) &&
+                !/^(true|false|yes|no|on|off|null|~)$/i.test(s) &&
+                !/^[-+]?[\d.]+$/.test(s) &&
+                !/^[-@]/.test(s.charAt(0))) {
+                return s;
+            }
+            return "'" + s.replace(/'/g, "''") + "'";
+        }
+
+        function pushBlockScalar(out, indent, key, text) {
+            out.push(indent + key + ': |');
+            for (const line of String(text).replace(/\r\n/g, '\n').split('\n')) {
+                out.push(indent + '  ' + line);
+            }
+        }
+
+        // ── generate ────────────────────────────────────────────
+        function generate() {
+            const out = ['#cloud-config'];
+
+            const hostname = v('hostname');
+            if (hostname) out.push('hostname: ' + yamlStr(hostname));
+            const tz = v('timezone');
+            if (tz) out.push('timezone: ' + yamlStr(tz));
+            const locale = v('locale');
+            if (locale) out.push('locale: ' + yamlStr(locale));
+
+            out.push('');
+            out.push('package_update: ' + ck('pkg-update'));
+            out.push('package_upgrade: ' + ck('pkg-upgrade'));
+            if (ck('pkg-reboot')) out.push('package_reboot_if_required: true');
+            const pkgs = lines('packages');
+            if (pkgs.length) {
+                out.push('packages:');
+                pkgs.forEach(p => out.push('  - ' + yamlStr(p)));
+            }
+
+            // users
+            const userEls = document.querySelectorAll('.user-item');
+            const keepDefault = ck('keep-default-user');
+            if (keepDefault || userEls.length) {
+                out.push('');
+                out.push('users:');
+                if (keepDefault) out.push('  - default');
+                userEls.forEach(el => {
+                    const q = sel => el.querySelector(sel);
+                    const name = q('.u-name').value.trim();
+                    if (!name) return;
+                    out.push('  - name: ' + yamlStr(name));
+                    const gecos = q('.u-gecos').value.trim();
+                    if (gecos) out.push('    gecos: ' + yamlStr(gecos));
+                    const groups = q('.u-groups').value.trim();
+                    if (groups) {
+                        const list = groups.split(',').map(s => s.trim()).filter(Boolean);
+                        out.push('    groups: [' + list.map(yamlStr).join(', ') + ']');
+                    }
+                    const shell = q('.u-shell').value.trim();
+                    if (shell) out.push('    shell: ' + yamlStr(shell));
+                    if (q('.u-sudo').checked) out.push("    sudo: 'ALL=(ALL) NOPASSWD:ALL'");
+                    out.push('    lock_passwd: ' + q('.u-lock').checked);
+                    const passwd = q('.u-passwd').value.trim();
+                    if (passwd) out.push('    passwd: ' + yamlStr(passwd));
+                    const keys = q('.u-keys').value.split('\n').map(l => l.trim()).filter(Boolean);
+                    if (keys.length) {
+                        out.push('    ssh_authorized_keys:');
+                        keys.forEach(k => out.push('      - ' + yamlStr(k)));
+                    }
+                });
+            }
+
+            out.push('');
+            out.push('ssh_pwauth: ' + ck('ssh-pwauth'));
+            out.push('disable_root: ' + ck('disable-root'));
+
+            // write_files
+            const fileEls = [...document.querySelectorAll('.file-item')]
+                .filter(el => el.querySelector('.f-path').value.trim());
+            if (fileEls.length) {
+                out.push('');
+                out.push('write_files:');
+                fileEls.forEach(el => {
+                    const q = sel => el.querySelector(sel);
+                    out.push('  - path: ' + yamlStr(q('.f-path').value.trim()));
+                    const perms = q('.f-perms').value.trim();
+                    if (perms) out.push("    permissions: '" + perms + "'");
+                    const owner = q('.f-owner').value.trim();
+                    if (owner) out.push('    owner: ' + yamlStr(owner));
+                    const content = q('.f-content').value;
+                    if (content.trim()) pushBlockScalar(out, '    ', 'content', content.replace(/\s+$/, ''));
+                });
+            }
+
+            // runcmd
+            const cmds = lines('runcmd');
+            if (cmds.length) {
+                out.push('');
+                out.push('runcmd:');
+                cmds.forEach(c => out.push('  - ' + yamlStr(c)));
+            }
+
+            const fin = v('final-message');
+            if (fin) {
+                out.push('');
+                out.push('final_message: ' + yamlStr(fin));
+            }
+
+            g('output').textContent = out.join('\n') + '\n';
+        }
+
+        function copyOut() {
+            const text = g('output').textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = g('copy-btn');
+                btn.textContent = 'Copied!';
+                btn.classList.add('flash');
+                setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('flash'); }, 1500);
+            });
+        }
+
+        function downloadOut() {
+            const blob = new Blob([g('output').textContent], { type: 'text/yaml' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'user-data';
+            a.click();
+            URL.revokeObjectURL(a.href);
+        }
+
+        addUser({ name: 'admin' });
+        generate();
+    </script>
+</body>
+</html>
