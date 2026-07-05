@@ -88,6 +88,9 @@ RHEL/Fedora/AlmaLinux kickstart (`ks.cfg`) generator, same form/output UX as the
 ### `cron-builder/`
 Crontab expression builder/decoder. A main expression input, preset select, and five per-field inputs stay bidirectionally synced (`fromExpr()`/`fromFields()`/`fromPreset()` with a `syncing` guard; expression is source of truth). Parser (`parseField()`/`parseCron()`) supports lists/ranges/steps, Vixie bare `a/n`, month/day names, DOW 7→0, and `@` aliases; keeps un-expanded per-item structure in `elems` for the English renderer (`describe()`) and systemd translator (`toOnCalendar()`), expanded `Set`s for matching. Faithful Vixie day semantics: `(domStar || dowStar) ? AND : OR` off the raw tokens' first char. Next 10 runs computed by day-iteration (1600-day cap → "never fires"); OnCalendar emits two lines when cron's DOM/DOW OR needs splitting.
 
+### `ipv6-subnet-calculator/`
+IPv6 companion to `subnet-calculator/`, same four sections: prefix info (canonical RFC 5952 compressed + expanded forms, address counts as powers of two, special-purpose kind detection from an ordered `KINDS` table), contains check, split into subnets (capped at 1024 rows), and summarize (range merge + BigInt `rangeToCIDRs()`). All math on BigInt 128-bit values; `parseIP()` handles `::` compression and embedded IPv4 tails (`::ffff:192.0.2.1`); bare addresses are treated as /128.
+
 ## Tool naming convention
 
 Config/file generator tools use the prefix `generate-<name>/` (e.g. `generate-ubuntu-autoinstall/`). Visualizers and interactive tools use a plain descriptive name (e.g. `diamond-model/`, `mind-map/`).

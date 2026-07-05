@@ -10,3 +10,4 @@
 - [x] timestamp-converter
 - [x] generate-kickstart
 - [x] cron-builder
+- [x] ipv6-subnet-calculator
