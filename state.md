@@ -9,3 +9,4 @@
 - [x] generate-cloud-init
 - [x] timestamp-converter
 - [x] generate-kickstart
+- [x] cron-builder

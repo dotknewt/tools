@@ -85,6 +85,9 @@ DFIR timestamp converter. Paste any value; auto-detects Unix epoch (s/ms/µs/ns)
 ### `generate-kickstart/`
 RHEL/Fedora/AlmaLinux kickstart (`ks.cfg`) generator, same form/output UX as the other `generate-` tools. Covers install mode/source, network (DHCP or static), rootpw/user (pre-hashed via `openssl passwd -6`, `--iscrypted`), SELinux/firewall/services, partitioning (zerombr, clearpart, ignoredisk, autopart lvm/plain/thinp), `%packages` (environment group + list), and an optional `%post` script.
 
+### `cron-builder/`
+Crontab expression builder/decoder. A main expression input, preset select, and five per-field inputs stay bidirectionally synced (`fromExpr()`/`fromFields()`/`fromPreset()` with a `syncing` guard; expression is source of truth). Parser (`parseField()`/`parseCron()`) supports lists/ranges/steps, Vixie bare `a/n`, month/day names, DOW 7→0, and `@` aliases; keeps un-expanded per-item structure in `elems` for the English renderer (`describe()`) and systemd translator (`toOnCalendar()`), expanded `Set`s for matching. Faithful Vixie day semantics: `(domStar || dowStar) ? AND : OR` off the raw tokens' first char. Next 10 runs computed by day-iteration (1600-day cap → "never fires"); OnCalendar emits two lines when cron's DOM/DOW OR needs splitting.
+
 ## Tool naming convention
 
 Config/file generator tools use the prefix `generate-<name>/` (e.g. `generate-ubuntu-autoinstall/`). Visualizers and interactive tools use a plain descriptive name (e.g. `diamond-model/`, `mind-map/`).
