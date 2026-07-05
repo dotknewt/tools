@@ -70,6 +70,9 @@ IOC extractor & defanger. Paste any text; it refangs defanged notation (`hxxp`, 
 ### `incident-timeline/`
 Incident/intrusion timeline builder. State in a single object `S` (`title`, `events[]` with `ts`/`title`/`category`/`description`), persisted to localStorage. Renders a vertical-spine SVG (built as a string in `buildSVG()`, literal hex colors so exports are standalone): alternating left/right cards, category dots using the Diamond Model vertex palette, and relative gap labels ("+2d 4h") between events. Click a card (SVG or list) to edit. Export SVG/JSON, import JSON.
 
+### `subnet-calculator/`
+IPv4 CIDR calculator, four sections on one page: CIDR info (network/broadcast/mask/wildcard/host range, accepts `/nn` or dotted-mask input), contains check (IP or subnet vs. network), split into smaller subnets (output capped at 1024 rows), and summarize (merge an IP/CIDR list into the minimal covering CIDR set via range merge + `rangeToCIDRs()`). All math on 32-bit unsigned ints (`>>> 0`); everything renders live on input.
+
 ### `concept-graph/`
 Typed node/edge graph visualizer for data flow, event pub/sub, and task dependencies. Users write a small line-oriented DSL (`id [kind]`, `A -> B`, `A emits X`, `A blocks B`, etc. — grammar lives in the `parse()`/`RELATIONS` section of the source); output re-renders on a 250ms debounce as four tabs: a live SVG **Preview** (via the Mermaid CDN, the only tool in this repo that needs network on first load), **Mermaid** fenced code, raw **ASCII** box-and-arrow art (own layered/Sugiyama-style layout with cycle-breaking), and canonical **JSON**. Parse errors surface non-blocking in a strip above the editor; the ASCII renderer caps at 40 nodes.
 
