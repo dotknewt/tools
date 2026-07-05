@@ -7,3 +7,5 @@
 - [x] incident-timeline
 - [x] subnet-calculator
 - [x] generate-cloud-init
+- [x] timestamp-converter
+- [x] generate-kickstart

@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timestamp Converter</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0d0f14;
+            --surface: #14171f;
+            --surface-2: #1c2030;
+            --surface-3: #252a3d;
+            --border: rgba(255, 255, 255, 0.07);
+            --border-strong: rgba(255, 255, 255, 0.14);
+            --text: #e8eaf0;
+            --text-muted: #9298a8;
+            --text-dim: #5c6275;
+            --accent: #f6ad55;
+            --accent-dim: rgba(246, 173, 85, 0.12);
+            --accent-border: rgba(246, 173, 85, 0.30);
+            --red: #ef6b6b;
+            --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            --radius-sm: 4px;
+            --radius-md: 6px;
+            --radius-lg: 10px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 14px;
+            line-height: 1.55;
+            min-height: 100vh;
+        }
+
+        .header {
+            border-bottom: 1px solid var(--border);
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--surface);
+        }
+
+        .back {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            text-decoration: none;
+            letter-spacing: 0.05em;
+            transition: color 0.15s;
+        }
+        .back:hover { color: var(--accent); }
+
+        .sep { color: var(--text-dim); }
+        .header-title { font-size: 14px; font-weight: 600; color: var(--text); }
+
+        .header-badge {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--accent);
+            background: var(--accent-dim);
+            border: 1px solid var(--accent-border);
+            border-radius: var(--radius-sm);
+            padding: 2px 7px;
+            letter-spacing: 0.06em;
+        }
+
+        .header-note {
+            margin-left: auto;
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-dim);
+            letter-spacing: 0.04em;
+        }
+
+        .page {
+            max-width: 760px;
+            margin: 0 auto;
+            padding: 28px 20px 64px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .card {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--surface);
+            overflow: hidden;
+        }
+
+        .card-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 11px 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .card-num {
+            font-family: var(--font-mono);
+            font-size: 9.5px;
+            color: var(--accent);
+            letter-spacing: 0.08em;
+        }
+
+        .card-name { font-size: 13px; font-weight: 600; flex: 1; }
+
+        .card-body {
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .field { display: flex; flex-direction: column; gap: 5px; }
+        .row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
+
+        label {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-muted);
+            letter-spacing: 0.03em;
+        }
+
+        input[type="text"], select {
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-md);
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 12.5px;
+            padding: 8px 11px;
+            outline: none;
+            width: 100%;
+            transition: border-color 0.15s;
+        }
+        input:focus, select:focus { border-color: var(--accent-border); }
+        input.bad { border-color: rgba(239, 107, 107, 0.5); }
+        select option { background: var(--surface-2); }
+
+        .kv {
+            display: grid;
+            grid-template-columns: 170px 1fr;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            overflow: hidden;
+        }
+        .kv > div {
+            padding: 7px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        .kv > div:nth-last-child(-n+2) { border-bottom: none; }
+        .kv .k { color: var(--text-dim); background: var(--surface-2); font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase; display: flex; align-items: center; }
+        .kv .v { color: var(--text); word-break: break-all; display: flex; align-items: center; gap: 8px; }
+        .kv .v b { color: var(--accent); font-weight: 600; }
+        .kv .v .val { flex: 1; }
+
+        .btn {
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            padding: 4px 9px;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s, background 0.15s;
+            flex-shrink: 0;
+        }
+        .btn:hover { color: var(--text); background: var(--surface-3); }
+        .btn.flash { color: var(--accent); border-color: var(--accent-border); background: var(--accent-dim); }
+
+        .detect-strip {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+        .detect-strip b { color: var(--accent); font-weight: 600; }
+
+        .chip {
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: 9px;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 10px;
+            padding: 2px 9px;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .chip:hover { color: var(--accent); border-color: var(--accent-border); }
+
+        .hint { font-size: 10.5px; color: var(--text-dim); font-family: var(--font-mono); line-height: 1.5; }
+        .err { font-size: 11px; color: var(--red); font-family: var(--font-mono); }
+        .dim { color: var(--text-dim); }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <a href="../" class="back">← hub</a>
+        <span class="sep">/</span>
+        <span class="header-title">Timestamp Converter</span>
+        <span class="header-badge">DFIR</span>
+        <span class="header-note">epoch · filetime · webkit · client-side</span>
+    </header>
+
+    <div class="page">
+
+        <!-- 01 Input -->
+        <div class="card">
+            <div class="card-head">
+                <span class="card-num">01</span>
+                <span class="card-name">Input</span>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="field">
+                        <label for="ts-in">Timestamp</label>
+                        <input type="text" id="ts-in" spellcheck="false" autocomplete="off">
+                    </div>
+                    <button class="btn" id="now-btn" style="padding:8px 14px">Now</button>
+                </div>
+                <div class="field">
+                    <label for="fmt-override">Format</label>
+                    <select id="fmt-override">
+                        <option value="auto" selected>Auto-detect</option>
+                        <option value="unix-s">Unix seconds</option>
+                        <option value="unix-ms">Unix milliseconds</option>
+                        <option value="unix-us">Unix microseconds</option>
+                        <option value="unix-ns">Unix nanoseconds</option>
+                        <option value="filetime">Windows FILETIME / LDAP</option>
+                        <option value="webkit">WebKit / Chrome</option>
+                        <option value="mac-absolute">Mac Absolute Time</option>
+                        <option value="iso">ISO 8601 / date string</option>
+                    </select>
+                </div>
+                <div class="detect-strip" id="detect-strip"></div>
+                <span class="hint">accepts epoch (s/ms/µs/ns) · FILETIME · WebKit · ISO 8601 · "YYYY-MM-DD HH:MM" (assumed UTC) — Mac Absolute is never auto-detected (same magnitude as Unix seconds); pick it in the Format select</span>
+            </div>
+        </div>
+
+        <!-- 02 Conversions -->
+        <div class="card">
+            <div class="card-head">
+                <span class="card-num">02</span>
+                <span class="card-name">Conversions</span>
+            </div>
+            <div class="card-body">
+                <div id="conv-out"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // ── conversion core ─────────────────────────────────────
+        // Canonical value: BigInt nanoseconds since the Unix epoch.
+        // BigInt is required — FILETIME (~1.3e17), WebKit (~1.3e16) and
+        // Unix-ns (~1.75e18) all exceed Number.MAX_SAFE_INTEGER (~9e15).
+        const NS_PER = { s: 1_000_000_000n, ms: 1_000_000n, us: 1_000n, ns: 1n };
+        const FILETIME_EPOCH_DIFF = 11644473600n;                    // seconds 1601 → 1970
+        const FILETIME_OFFSET_100NS = FILETIME_EPOCH_DIFF * 10_000_000n;
+        const WEBKIT_OFFSET_US = FILETIME_EPOCH_DIFF * 1_000_000n;
+        const MAC_EPOCH_DIFF = 978307200n;                           // seconds 1970 → 2001
+
+        // BigInt / truncates toward zero; floor keeps pre-1970 values exact
+        function floorDiv(a, b) {
+            const q = a / b;
+            return (a % b !== 0n && (a < 0n) !== (b < 0n)) ? q - 1n : q;
+        }
+
+        const FORMATS = {
+            'unix-s':      { label: 'Unix seconds',       toNs: x => x * NS_PER.s,                          fromNs: ns => floorDiv(ns, NS_PER.s) },
+            'unix-ms':     { label: 'Unix milliseconds',  toNs: x => x * NS_PER.ms,                         fromNs: ns => floorDiv(ns, NS_PER.ms) },
+            'unix-us':     { label: 'Unix microseconds',  toNs: x => x * NS_PER.us,                         fromNs: ns => floorDiv(ns, NS_PER.us) },
+            'unix-ns':     { label: 'Unix nanoseconds',   toNs: x => x,                                     fromNs: ns => ns },
+            'filetime':    { label: 'Windows FILETIME',   toNs: x => (x - FILETIME_OFFSET_100NS) * 100n,    fromNs: ns => floorDiv(ns, 100n) + FILETIME_OFFSET_100NS },
+            'webkit':      { label: 'WebKit / Chrome',    toNs: x => (x - WEBKIT_OFFSET_US) * 1_000n,       fromNs: ns => floorDiv(ns, NS_PER.us) + WEBKIT_OFFSET_US },
+            'mac-absolute':{ label: 'Mac Absolute Time',  toNs: x => (x + MAC_EPOCH_DIFF) * NS_PER.s,       fromNs: ns => floorDiv(ns, NS_PER.s) - MAC_EPOCH_DIFF },
+        };
+
+        // sanity window used by auto-detection: 1970-01-01 … 2200-01-01 (as ns)
+        const WINDOW_MIN = 0n;
+        const WINDOW_MAX = 7258118400n * NS_PER.s;
+        // hard bounds for explicit overrides: 1601 … year 9999 (as ns)
+        const HARD_MIN = -FILETIME_EPOCH_DIFF * NS_PER.s;
+        const HARD_MAX = 253402300800n * NS_PER.s;
+        // Date can only represent ±8.64e15 ms from the epoch
+        const DATE_RANGE_MS = 8_640_000_000_000_000n;
+
+        function inWindow(ns) { return ns >= WINDOW_MIN && ns <= WINDOW_MAX; }
+
+        // numeric input → {format, ns, alternates:[{format, ns}]} using a
+        // magnitude heuristic; every candidate must land inside the sanity window
+        function detectNumeric(big) {
+            const candidates = [];
+            for (const key of ['unix-s', 'unix-ms', 'unix-us', 'unix-ns', 'webkit', 'filetime']) {
+                if ((key === 'filetime' || key === 'webkit') && big < 0n) continue;
+                const ns = FORMATS[key].toNs(big);
+                if (inWindow(ns)) candidates.push({ format: key, ns });
+            }
+            if (!candidates.length) return null;
+            // band priority: fewest digits wins → unix-s beats unix-ms beats … ;
+            // 17-digit prefers webkit, 18-digit prefers filetime over unix-ns
+            const abs = big < 0n ? -big : big;
+            const digits = abs.toString().length;
+            let preferred;
+            if (digits <= 10) preferred = 'unix-s';
+            else if (digits <= 13) preferred = 'unix-ms';
+            else if (digits <= 16) preferred = 'unix-us';
+            else if (digits === 17) preferred = 'webkit';
+            else if (digits === 18) preferred = 'filetime';
+            else preferred = 'unix-ns';
+            const primary = candidates.find(c => c.format === preferred) || candidates[0];
+            return { ...primary, alternates: candidates.filter(c => c.format !== primary.format) };
+        }
+
+        // ISO / date-string path. Date.parse drops sub-ms precision, so the
+        // fractional part is parsed by hand and re-added as ns.
+        function parseDateString(s) {
+            let str = s.trim();
+            // "YYYY-MM-DD HH:MM[:SS]" → ISO; assume UTC when no zone is given
+            let m = str.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/);
+            if (m) {
+                const frac = m[3] ? m[3].slice(1) : '';
+                const zone = m[4] || 'Z';
+                const base = Date.parse(`${m[1]}T${m[2]}${zone}`);
+                if (isNaN(base)) return null;
+                const fracNs = frac ? BigInt(frac.padEnd(9, '0').slice(0, 9)) : 0n;
+                return BigInt(base) * NS_PER.ms + fracNs;
+            }
+            if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+                const base = Date.parse(str + 'T00:00:00Z');
+                return isNaN(base) ? null : BigInt(base) * NS_PER.ms;
+            }
+            // last resort: whatever Date.parse accepts (RFC 2822 etc.)
+            const base = Date.parse(str);
+            return isNaN(base) ? null : BigInt(base) * NS_PER.ms;
+        }
+
+        // → { ns, format, alternates, warn } | { error }
+        function parseInput(raw, override) {
+            const s = raw.trim();
+            if (!s) return { error: 'Enter a timestamp.' };
+            const cleaned = s.replace(/[,_\s]/g, '');
+            const isInt = /^[+-]?\d+$/.test(cleaned);
+            const isDec = /^[+-]?\d+\.\d+$/.test(cleaned);
+
+            if (override !== 'auto' && override !== 'iso') {
+                if (!isInt && !isDec) return { error: 'This format expects a numeric value.' };
+                let ns;
+                if (isDec && override === 'unix-s' || isDec && override === 'mac-absolute') {
+                    const [int, frac] = cleaned.split('.');
+                    const fracNs = BigInt(frac.padEnd(9, '0').slice(0, 9)) * (int.startsWith('-') ? -1n : 1n);
+                    ns = FORMATS[override].toNs(BigInt(int)) + fracNs;
+                } else if (isDec) {
+                    return { error: 'Fractional input is only supported for second-based formats.' };
+                } else {
+                    const big = BigInt(cleaned);
+                    if ((override === 'filetime' || override === 'webkit') && big < 0n)
+                        return { error: FORMATS[override].label + ' cannot be negative (epoch is 1601-01-01).' };
+                    ns = FORMATS[override].toNs(big);
+                }
+                if (ns < HARD_MIN || ns > HARD_MAX) return { error: 'Value is outside 1601–9999 as ' + FORMATS[override].label + '.' };
+                const warn = inWindow(ns) ? '' : 'outside the usual 1970–2200 range — double-check the format';
+                return { ns, format: override, alternates: [], warn };
+            }
+
+            if (override === 'iso' || (!isInt && !isDec)) {
+                const ns = parseDateString(s);
+                if (ns === null) return { error: 'Could not parse as a date string.' };
+                return { ns, format: 'iso', alternates: [], warn: '' };
+            }
+
+            if (isDec) {  // bare decimal → Unix seconds with fraction
+                const [int, frac] = cleaned.split('.');
+                const fracNs = BigInt(frac.padEnd(9, '0').slice(0, 9)) * (int.startsWith('-') ? -1n : 1n);
+                return { ns: BigInt(int) * NS_PER.s + fracNs, format: 'unix-s', alternates: [], warn: '' };
+            }
+
+            const det = detectNumeric(BigInt(cleaned));
+            if (!det) return { error: 'No format puts this value between 1970 and 2200 — pick a format explicitly.' };
+            return { ns: det.ns, format: det.format, alternates: det.alternates, warn: '' };
+        }
+
+        // ── rendering ───────────────────────────────────────────
+        function pad(n, w) { return String(n).padStart(w, '0'); }
+
+        function fracStr(ns) {
+            let f = ((ns % NS_PER.s) + NS_PER.s) % NS_PER.s;    // 0..999999999, also for negative ns
+            if (f === 0n) return '';
+            return '.' + f.toString().padStart(9, '0').replace(/0+$/, '');
+        }
+
+        function dateOf(ns) {
+            const ms = floorDiv(ns, NS_PER.ms);
+            if (ms < -DATE_RANGE_MS || ms > DATE_RANGE_MS) return null;
+            return new Date(Number(ms));
+        }
+
+        function isoUTC(ns) {
+            const ms = floorDiv(ns, NS_PER.s) * 1000n;          // whole seconds only; fraction re-added
+            const d = new Date(Number(ms));
+            return `${pad(d.getUTCFullYear(), 4)}-${pad(d.getUTCMonth() + 1, 2)}-${pad(d.getUTCDate(), 2)}T` +
+                   `${pad(d.getUTCHours(), 2)}:${pad(d.getUTCMinutes(), 2)}:${pad(d.getUTCSeconds(), 2)}${fracStr(ns)}Z`;
+        }
+
+        function humanUTC(ns) {
+            return isoUTC(ns).replace('T', ' ').replace(/(\.\d+)?Z$/, ' UTC');
+        }
+
+        function humanLocal(ns) {
+            const d = dateOf(ns);
+            const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            return `${pad(d.getFullYear(), 4)}-${pad(d.getMonth() + 1, 2)}-${pad(d.getDate(), 2)} ` +
+                   `${pad(d.getHours(), 2)}:${pad(d.getMinutes(), 2)}:${pad(d.getSeconds(), 2)} <span class="dim">${zone}</span>`;
+        }
+
+        function relDelta(ns) {
+            const now = BigInt(Date.now()) * NS_PER.ms;
+            let d = now - ns;
+            if (d === 0n) return 'now';
+            const past = d > 0n;
+            if (!past) d = -d;
+            let secs = d / NS_PER.s;
+            const units = [['y', 31536000n], ['d', 86400n], ['h', 3600n], ['m', 60n], ['s', 1n]];
+            const parts = [];
+            for (const [label, span] of units) {
+                if (secs >= span && parts.length < 2) {
+                    parts.push((secs / span) + label);
+                    secs %= span;
+                }
+            }
+            if (!parts.length) parts.push('<1s');
+            return past ? parts.join(' ') + ' ago' : 'in ' + parts.join(' ');
+        }
+
+        function g(id) { return document.getElementById(id); }
+
+        function flash(btn) {
+            const old = btn.textContent;
+            btn.textContent = 'Copied!';
+            btn.classList.add('flash');
+            setTimeout(() => { btn.textContent = old; btn.classList.remove('flash'); }, 1500);
+        }
+
+        function copyRow(btn) {
+            navigator.clipboard.writeText(btn.dataset.val).then(() => flash(btn));
+        }
+
+        function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+
+        function kvCopy(rows) {
+            return '<div class="kv">' + rows.map(([k, html, copyVal]) => {
+                const btn = copyVal !== undefined
+                    ? `<button class="btn" data-val="${esc(copyVal)}" onclick="copyRow(this)">Copy</button>` : '';
+                return `<div class="k">${k}</div><div class="v"><span class="val">${html}</span>${btn}</div>`;
+            }).join('') + '</div>';
+        }
+
+        function errBox(msg) { return `<span class="err">${esc(msg)}</span>`; }
+
+        const NAMES = {
+            'unix-s': 'Unix seconds', 'unix-ms': 'Unix milliseconds', 'unix-us': 'Unix microseconds',
+            'unix-ns': 'Unix nanoseconds', 'filetime': 'Windows FILETIME', 'webkit': 'WebKit / Chrome',
+            'mac-absolute': 'Mac Absolute Time', 'iso': 'ISO 8601 / date string',
+        };
+
+        function render() {
+            const input = g('ts-in');
+            const override = g('fmt-override').value;
+            const res = parseInput(input.value, override);
+            const strip = g('detect-strip');
+            const out = g('conv-out');
+            input.classList.toggle('bad', !!res.error && input.value.trim() !== '');
+
+            if (res.error) {
+                strip.innerHTML = '';
+                out.innerHTML = errBox(res.error);
+                return;
+            }
+
+            let stripHtml = override === 'auto'
+                ? `detected: <b>${NAMES[res.format]}</b>`
+                : `format: <b>${NAMES[res.format]}</b> <span class="dim">(override)</span>`;
+            if (res.alternates.length) {
+                stripHtml += ' <span class="dim">· also valid as</span> ' + res.alternates.map(a =>
+                    `<button class="chip" data-fmt="${a.format}">${NAMES[a.format]}</button>`).join(' ');
+            }
+            if (res.warn) stripHtml += ` <span class="err">⚠ ${esc(res.warn)}</span>`;
+            strip.innerHTML = stripHtml;
+            strip.querySelectorAll('.chip').forEach(chip =>
+                chip.addEventListener('click', () => { g('fmt-override').value = chip.dataset.fmt; render(); }));
+
+            const ns = res.ns;
+            if (!dateOf(ns)) { out.innerHTML = errBox('Value is outside the representable date range.'); return; }
+
+            const conv = key => FORMATS[key].fromNs(ns).toString();
+            const iso = isoUTC(ns);
+            const ftNote = ' <span class="dim">also LDAP/AD (pwdLastSet, lastLogon)</span>';
+            const macNegNote = ns < MAC_EPOCH_DIFF * NS_PER.s ? ' <span class="dim">(pre-2001)</span>' : '';
+
+            out.innerHTML = kvCopy([
+                ['Human UTC', `<b>${humanUTC(ns)}</b>`, humanUTC(ns)],
+                ['Human local', humanLocal(ns)],
+                ['Delta from now', relDelta(ns)],
+                ['ISO 8601', iso, iso],
+                ['Unix seconds', conv('unix-s'), conv('unix-s')],
+                ['Unix milliseconds', conv('unix-ms'), conv('unix-ms')],
+                ['Unix microseconds', conv('unix-us'), conv('unix-us')],
+                ['Unix nanoseconds', conv('unix-ns'), conv('unix-ns')],
+                ['Windows FILETIME', conv('filetime') + ftNote, conv('filetime')],
+                ['WebKit / Chrome', conv('webkit'), conv('webkit')],
+                ['Mac Absolute', conv('mac-absolute') + macNegNote, conv('mac-absolute')],
+            ]);
+        }
+
+        // ── wiring ──────────────────────────────────────────────
+        g('ts-in').addEventListener('input', render);
+        g('fmt-override').addEventListener('change', render);
+        g('now-btn').addEventListener('click', () => {
+            g('ts-in').value = String(Date.now());
+            g('fmt-override').value = 'auto';
+            render();
+        });
+
+        g('ts-in').value = String(Math.floor(Date.now() / 1000));
+        render();
+    </script>
+</body>
+</html>
