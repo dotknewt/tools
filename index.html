@@ -108,6 +108,73 @@
             margin-bottom: 16px;
         }
 
+        /* ── Categories ─────────────────────────────── */
+        .categories {
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
+        }
+
+        .category-summary {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            list-style: none;
+            cursor: pointer;
+            user-select: none;
+            padding-bottom: 12px;
+            margin-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+            transition: border-color 0.2s;
+        }
+
+        .category-summary::-webkit-details-marker { display: none; }
+        .category-summary::marker { content: ""; }
+
+        .category-summary:hover { border-bottom-color: var(--border-strong); }
+        .category-summary:hover .category-title { color: var(--text); }
+
+        .category-summary:focus-visible {
+            outline: 2px solid var(--border-strong);
+            outline-offset: 4px;
+            border-radius: var(--radius-sm);
+        }
+
+        .category-title {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            transition: color 0.2s;
+        }
+
+        .category-count {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--text-dim);
+            background: var(--surface-3);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 2px 7px;
+            margin-left: auto;
+        }
+
+        .category-chevron {
+            font-size: 10px;
+            color: var(--text-dim);
+            flex-shrink: 0;
+            transition: transform 0.2s ease;
+        }
+
+        details.category:not([open]) .category-chevron {
+            transform: rotate(-90deg);
+        }
+
+        details.category:not([open]) .category-summary {
+            margin-bottom: 0;
+        }
+
         /* ── Cards ─────────────────────────────────── */
         .grid {
             display: grid;
@@ -226,7 +293,15 @@
 
         <section>
             <div class="section-label">Available tools</div>
-            <div class="grid">
+            <div class="categories">
+
+            <details class="category" open>
+                <summary class="category-summary">
+                    <span class="category-title">CTI &amp; Visualization</span>
+                    <span class="category-count">6</span>
+                    <span class="category-chevron">▾</span>
+                </summary>
+                <div class="grid">
 
                 <a href="diamond-model/" class="card" data-accent="teal">
                     <div class="card-icon">
@@ -283,60 +358,6 @@
                         <span class="tag">cti</span>
                         <span class="tag">codenames</span>
                         <span class="tag">generator</span>
-                    </div>
-                </a>
-
-                <a href="generate-ubuntu-autoinstall/" class="card" data-accent="amber">
-                    <div class="card-icon">
-                        <svg viewBox="0 0 18 18" fill="none">
-                            <circle cx="9" cy="9" r="7" stroke="#f6ad55" stroke-width="1.4"/>
-                            <circle cx="9" cy="9" r="3" fill="#f6ad55" opacity=".3"/>
-                            <line x1="9" y1="2" x2="9" y2="5" stroke="#f6ad55" stroke-width="1.4"/>
-                            <line x1="9" y1="13" x2="9" y2="16" stroke="#f6ad55" stroke-width="1.4"/>
-                            <line x1="2" y1="9" x2="5" y2="9" stroke="#f6ad55" stroke-width="1.4"/>
-                            <line x1="13" y1="9" x2="16" y2="9" stroke="#f6ad55" stroke-width="1.4"/>
-                        </svg>
-                    </div>
-                    <div class="card-title">Ubuntu Autoinstall</div>
-                    <div class="card-desc">Generate autoinstall.yaml for unattended Ubuntu server installations. Covers identity, storage, SSH, and packages.</div>
-                    <div class="card-tags">
-                        <span class="tag">ubuntu</span>
-                        <span class="tag">autoinstall</span>
-                        <span class="tag">yaml</span>
-                    </div>
-                </a>
-
-                <a href="generate-debian-preseed/" class="card" data-accent="purple">
-                    <div class="card-icon">
-                        <svg viewBox="0 0 18 18" fill="none">
-                            <path d="M9 2 C5.13 2 2 5.13 2 9 C2 12.87 5.13 16 9 16 C12.87 16 16 12.87 16 9 C16 5.13 12.87 2 9 2 Z" stroke="#b794f6" stroke-width="1.4" fill="none"/>
-                            <path d="M9 5 C9 5 12 7 12 9 C12 11 10.5 12.5 9 13 C7.5 12.5 6 11 6 9 C6 7 9 5 9 5 Z" fill="#b794f6" opacity=".35"/>
-                        </svg>
-                    </div>
-                    <div class="card-title">Debian Preseed</div>
-                    <div class="card-desc">Generate preseed.cfg for fully automated Debian installations. Covers locale, partitioning, accounts, and packages.</div>
-                    <div class="card-tags">
-                        <span class="tag">debian</span>
-                        <span class="tag">preseed</span>
-                        <span class="tag">cfg</span>
-                    </div>
-                </a>
-
-                <a href="generate-windows-unattend/" class="card" data-accent="teal">
-                    <div class="card-icon">
-                        <svg viewBox="0 0 18 18" fill="none">
-                            <rect x="2" y="2" width="6.5" height="6.5" rx="1" fill="#4fd1c5" opacity=".8"/>
-                            <rect x="9.5" y="2" width="6.5" height="6.5" rx="1" fill="#4fd1c5" opacity=".5"/>
-                            <rect x="2" y="9.5" width="6.5" height="6.5" rx="1" fill="#4fd1c5" opacity=".5"/>
-                            <rect x="9.5" y="9.5" width="6.5" height="6.5" rx="1" fill="#4fd1c5" opacity=".8"/>
-                        </svg>
-                    </div>
-                    <div class="card-title">Windows Autounattend</div>
-                    <div class="card-desc">Generate Autounattend.xml for silent Windows installations. Covers disk layout, locale, user accounts, and OOBE.</div>
-                    <div class="card-tags">
-                        <span class="tag">windows</span>
-                        <span class="tag">autounattend</span>
-                        <span class="tag">xml</span>
                     </div>
                 </a>
 
@@ -399,22 +420,68 @@
                     </div>
                 </a>
 
-                <a href="subnet-calculator/" class="card" data-accent="teal">
+                </div>
+            </details>
+
+            <details class="category" open>
+                <summary class="category-summary">
+                    <span class="category-title">OS Install/Config Generators</span>
+                    <span class="category-count">5</span>
+                    <span class="category-chevron">▾</span>
+                </summary>
+                <div class="grid">
+
+                <a href="generate-ubuntu-autoinstall/" class="card" data-accent="amber">
                     <div class="card-icon">
                         <svg viewBox="0 0 18 18" fill="none">
-                            <rect x="2" y="2" width="14" height="6" rx="1.5" stroke="#4fd1c5" stroke-width="1.3"/>
-                            <rect x="2" y="10.5" width="6" height="5.5" rx="1.5" fill="#4fd1c5" opacity=".5"/>
-                            <rect x="10" y="10.5" width="6" height="5.5" rx="1.5" fill="#4fd1c5" opacity=".3"/>
-                            <line x1="6" y1="8" x2="5" y2="10.5" stroke="#4fd1c5" stroke-width="1"/>
-                            <line x1="12" y1="8" x2="13" y2="10.5" stroke="#4fd1c5" stroke-width="1"/>
+                            <circle cx="9" cy="9" r="7" stroke="#f6ad55" stroke-width="1.4"/>
+                            <circle cx="9" cy="9" r="3" fill="#f6ad55" opacity=".3"/>
+                            <line x1="9" y1="2" x2="9" y2="5" stroke="#f6ad55" stroke-width="1.4"/>
+                            <line x1="9" y1="13" x2="9" y2="16" stroke="#f6ad55" stroke-width="1.4"/>
+                            <line x1="2" y1="9" x2="5" y2="9" stroke="#f6ad55" stroke-width="1.4"/>
+                            <line x1="13" y1="9" x2="16" y2="9" stroke="#f6ad55" stroke-width="1.4"/>
                         </svg>
                     </div>
-                    <div class="card-title">Subnet Calculator</div>
-                    <div class="card-desc">IPv4 CIDR math: network details, mask conversions, contains checks, splitting blocks into subnets, and summarizing IP lists into minimal CIDRs.</div>
+                    <div class="card-title">Ubuntu Autoinstall</div>
+                    <div class="card-desc">Generate autoinstall.yaml for unattended Ubuntu server installations. Covers identity, storage, SSH, and packages.</div>
                     <div class="card-tags">
-                        <span class="tag">network</span>
-                        <span class="tag">ipv4</span>
-                        <span class="tag">cidr</span>
+                        <span class="tag">ubuntu</span>
+                        <span class="tag">autoinstall</span>
+                        <span class="tag">yaml</span>
+                    </div>
+                </a>
+
+                <a href="generate-debian-preseed/" class="card" data-accent="purple">
+                    <div class="card-icon">
+                        <svg viewBox="0 0 18 18" fill="none">
+                            <path d="M9 2 C5.13 2 2 5.13 2 9 C2 12.87 5.13 16 9 16 C12.87 16 16 12.87 16 9 C16 5.13 12.87 2 9 2 Z" stroke="#b794f6" stroke-width="1.4" fill="none"/>
+                            <path d="M9 5 C9 5 12 7 12 9 C12 11 10.5 12.5 9 13 C7.5 12.5 6 11 6 9 C6 7 9 5 9 5 Z" fill="#b794f6" opacity=".35"/>
+                        </svg>
+                    </div>
+                    <div class="card-title">Debian Preseed</div>
+                    <div class="card-desc">Generate preseed.cfg for fully automated Debian installations. Covers locale, partitioning, accounts, and packages.</div>
+                    <div class="card-tags">
+                        <span class="tag">debian</span>
+                        <span class="tag">preseed</span>
+                        <span class="tag">cfg</span>
+                    </div>
+                </a>
+
+                <a href="generate-windows-unattend/" class="card" data-accent="teal">
+                    <div class="card-icon">
+                        <svg viewBox="0 0 18 18" fill="none">
+                            <rect x="2" y="2" width="6.5" height="6.5" rx="1" fill="#4fd1c5" opacity=".8"/>
+                            <rect x="9.5" y="2" width="6.5" height="6.5" rx="1" fill="#4fd1c5" opacity=".5"/>
+                            <rect x="2" y="9.5" width="6.5" height="6.5" rx="1" fill="#4fd1c5" opacity=".5"/>
+                            <rect x="9.5" y="9.5" width="6.5" height="6.5" rx="1" fill="#4fd1c5" opacity=".8"/>
+                        </svg>
+                    </div>
+                    <div class="card-title">Windows Autounattend</div>
+                    <div class="card-desc">Generate Autounattend.xml for silent Windows installations. Covers disk layout, locale, user accounts, and OOBE.</div>
+                    <div class="card-tags">
+                        <span class="tag">windows</span>
+                        <span class="tag">autounattend</span>
+                        <span class="tag">xml</span>
                     </div>
                 </a>
 
@@ -431,24 +498,6 @@
                         <span class="tag">cloud-init</span>
                         <span class="tag">user-data</span>
                         <span class="tag">yaml</span>
-                    </div>
-                </a>
-
-                <a href="timestamp-converter/" class="card" data-accent="amber">
-                    <div class="card-icon">
-                        <svg viewBox="0 0 18 18" fill="none">
-                            <circle cx="9" cy="9" r="7" stroke="#f6ad55" stroke-width="1.4"/>
-                            <line x1="9" y1="9" x2="9" y2="4.5" stroke="#f6ad55" stroke-width="1.4" stroke-linecap="round"/>
-                            <line x1="9" y1="9" x2="12.5" y2="11" stroke="#f6ad55" stroke-width="1.4" stroke-linecap="round"/>
-                            <circle cx="9" cy="9" r="1" fill="#f6ad55"/>
-                        </svg>
-                    </div>
-                    <div class="card-title">Timestamp Converter</div>
-                    <div class="card-desc">Paste any timestamp — epoch (s/ms/µs/ns), Windows FILETIME, WebKit/Chrome, LDAP, ISO 8601 — auto-detect the format and convert to all the others.</div>
-                    <div class="card-tags">
-                        <span class="tag">dfir</span>
-                        <span class="tag">epoch</span>
-                        <span class="tag">filetime</span>
                     </div>
                 </a>
 
@@ -470,24 +519,33 @@
                     </div>
                 </a>
 
-                <a href="cron-builder/" class="card" data-accent="teal">
+                </div>
+            </details>
+
+            <details class="category" open>
+                <summary class="category-summary">
+                    <span class="category-title">Utilities</span>
+                    <span class="category-count">5</span>
+                    <span class="category-chevron">▾</span>
+                </summary>
+                <div class="grid">
+
+                <a href="subnet-calculator/" class="card" data-accent="teal">
                     <div class="card-icon">
                         <svg viewBox="0 0 18 18" fill="none">
-                            <rect x="2" y="3" width="14" height="13" rx="1.5" stroke="#4fd1c5" stroke-width="1.3"/>
-                            <line x1="2" y1="7" x2="16" y2="7" stroke="#4fd1c5" stroke-width="1.1"/>
-                            <line x1="6" y1="1.5" x2="6" y2="4.5" stroke="#4fd1c5" stroke-width="1.3" stroke-linecap="round"/>
-                            <line x1="12" y1="1.5" x2="12" y2="4.5" stroke="#4fd1c5" stroke-width="1.3" stroke-linecap="round"/>
-                            <circle cx="6" cy="10.5" r="1" fill="#4fd1c5" opacity=".9"/>
-                            <circle cx="9" cy="10.5" r="1" fill="#4fd1c5" opacity=".5"/>
-                            <circle cx="12" cy="13.5" r="1" fill="#4fd1c5" opacity=".7"/>
+                            <rect x="2" y="2" width="14" height="6" rx="1.5" stroke="#4fd1c5" stroke-width="1.3"/>
+                            <rect x="2" y="10.5" width="6" height="5.5" rx="1.5" fill="#4fd1c5" opacity=".5"/>
+                            <rect x="10" y="10.5" width="6" height="5.5" rx="1.5" fill="#4fd1c5" opacity=".3"/>
+                            <line x1="6" y1="8" x2="5" y2="10.5" stroke="#4fd1c5" stroke-width="1"/>
+                            <line x1="12" y1="8" x2="13" y2="10.5" stroke="#4fd1c5" stroke-width="1"/>
                         </svg>
                     </div>
-                    <div class="card-title">Cron Builder</div>
-                    <div class="card-desc">Build and decode crontab expressions: plain-English description, next-run preview, and systemd OnCalendar translation.</div>
+                    <div class="card-title">Subnet Calculator</div>
+                    <div class="card-desc">IPv4 CIDR math: network details, mask conversions, contains checks, splitting blocks into subnets, and summarizing IP lists into minimal CIDRs.</div>
                     <div class="card-tags">
-                        <span class="tag">cron</span>
-                        <span class="tag">scheduler</span>
-                        <span class="tag">systemd</span>
+                        <span class="tag">network</span>
+                        <span class="tag">ipv4</span>
+                        <span class="tag">cidr</span>
                     </div>
                 </a>
 
@@ -527,6 +585,48 @@
                         <span class="tag">policy</span>
                     </div>
                 </a>
+
+                <a href="timestamp-converter/" class="card" data-accent="amber">
+                    <div class="card-icon">
+                        <svg viewBox="0 0 18 18" fill="none">
+                            <circle cx="9" cy="9" r="7" stroke="#f6ad55" stroke-width="1.4"/>
+                            <line x1="9" y1="9" x2="9" y2="4.5" stroke="#f6ad55" stroke-width="1.4" stroke-linecap="round"/>
+                            <line x1="9" y1="9" x2="12.5" y2="11" stroke="#f6ad55" stroke-width="1.4" stroke-linecap="round"/>
+                            <circle cx="9" cy="9" r="1" fill="#f6ad55"/>
+                        </svg>
+                    </div>
+                    <div class="card-title">Timestamp Converter</div>
+                    <div class="card-desc">Paste any timestamp — epoch (s/ms/µs/ns), Windows FILETIME, WebKit/Chrome, LDAP, ISO 8601 — auto-detect the format and convert to all the others.</div>
+                    <div class="card-tags">
+                        <span class="tag">dfir</span>
+                        <span class="tag">epoch</span>
+                        <span class="tag">filetime</span>
+                    </div>
+                </a>
+
+                <a href="cron-builder/" class="card" data-accent="teal">
+                    <div class="card-icon">
+                        <svg viewBox="0 0 18 18" fill="none">
+                            <rect x="2" y="3" width="14" height="13" rx="1.5" stroke="#4fd1c5" stroke-width="1.3"/>
+                            <line x1="2" y1="7" x2="16" y2="7" stroke="#4fd1c5" stroke-width="1.1"/>
+                            <line x1="6" y1="1.5" x2="6" y2="4.5" stroke="#4fd1c5" stroke-width="1.3" stroke-linecap="round"/>
+                            <line x1="12" y1="1.5" x2="12" y2="4.5" stroke="#4fd1c5" stroke-width="1.3" stroke-linecap="round"/>
+                            <circle cx="6" cy="10.5" r="1" fill="#4fd1c5" opacity=".9"/>
+                            <circle cx="9" cy="10.5" r="1" fill="#4fd1c5" opacity=".5"/>
+                            <circle cx="12" cy="13.5" r="1" fill="#4fd1c5" opacity=".7"/>
+                        </svg>
+                    </div>
+                    <div class="card-title">Cron Builder</div>
+                    <div class="card-desc">Build and decode crontab expressions: plain-English description, next-run preview, and systemd OnCalendar translation.</div>
+                    <div class="card-tags">
+                        <span class="tag">cron</span>
+                        <span class="tag">scheduler</span>
+                        <span class="tag">systemd</span>
+                    </div>
+                </a>
+
+                </div>
+            </details>
 
             </div>
         </section>
