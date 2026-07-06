@@ -12,3 +12,6 @@
 - [x] cron-builder
 - [x] ipv6-subnet-calculator
 - [x] tailscale-acl-tester
+- [x] jwt-decoder
+- [x] csr-decoder
+- [x] email-header-analyzer
