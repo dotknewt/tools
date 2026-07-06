@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSR Decoder</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0d0f14;
+            --surface: #14171f;
+            --surface-2: #1c2030;
+            --surface-3: #252a3d;
+            --border: rgba(255, 255, 255, 0.07);
+            --border-strong: rgba(255, 255, 255, 0.14);
+            --text: #e8eaf0;
+            --text-muted: #9298a8;
+            --text-dim: #5c6275;
+            --accent: #4fd1c5;
+            --accent-dim: rgba(79, 209, 197, 0.12);
+            --accent-border: rgba(79, 209, 197, 0.30);
+            --ok: #4fd1c5;
+            --bad: #ef6b6b;
+            --bad-dim: rgba(239, 107, 107, 0.12);
+            --bad-border: rgba(239, 107, 107, 0.30);
+            --amber: #f6ad55;
+            --amber-dim: rgba(246, 173, 85, 0.12);
+            --amber-border: rgba(246, 173, 85, 0.30);
+            --purple: #b794f6;
+            --blue: #63b3ed;
+            --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            --radius-sm: 4px;
+            --radius-md: 6px;
+            --radius-lg: 10px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 14px;
+            line-height: 1.55;
+            min-height: 100vh;
+        }
+
+        .header {
+            border-bottom: 1px solid var(--border);
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--surface);
+        }
+
+        .back {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            text-decoration: none;
+            letter-spacing: 0.05em;
+            transition: color 0.15s;
+        }
+        .back:hover { color: var(--accent); }
+
+        .sep { color: var(--text-dim); }
+        .header-title { font-size: 14px; font-weight: 600; color: var(--text); }
+
+        .header-badge {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--accent);
+            background: var(--accent-dim);
+            border: 1px solid var(--accent-border);
+            border-radius: var(--radius-sm);
+            padding: 2px 7px;
+            letter-spacing: 0.06em;
+        }
+
+        .header-note {
+            margin-left: auto;
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-dim);
+            letter-spacing: 0.04em;
+        }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: minmax(340px, 42%) 1fr;
+            height: calc(100vh - 49px);
+        }
+
+        @media (max-width: 860px) {
+            .workspace { grid-template-columns: 1fr; height: auto; }
+            .results-panel { border-left: none; border-top: 1px solid var(--border); min-height: 400px; }
+            .input-panel textarea { min-height: 220px; }
+        }
+
+        .input-panel {
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border);
+        }
+
+        .panel-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+            flex-shrink: 0;
+            flex-wrap: wrap;
+        }
+
+        .panel-title {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.10em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            flex: 1;
+        }
+
+        .btn {
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            padding: 4px 9px;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s, background 0.15s;
+        }
+        .btn:hover { color: var(--text); border-color: var(--border-strong); background: var(--surface-3); }
+
+        #input {
+            flex: 1;
+            width: 100%;
+            background: transparent;
+            border: none;
+            outline: none;
+            resize: none;
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 12px;
+            line-height: 1.6;
+            padding: 16px 18px;
+        }
+        #input::placeholder { color: var(--text-dim); }
+
+        .results-panel { display: flex; flex-direction: column; overflow: hidden; }
+
+        .results-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .empty-note {
+            color: var(--text-dim);
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            font-style: italic;
+            padding: 24px;
+            text-align: center;
+        }
+
+        .status-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+        .chip {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            letter-spacing: 0.05em;
+            border-radius: var(--radius-sm);
+            padding: 3px 9px;
+            border: 1px solid var(--border-strong);
+            background: var(--surface-2);
+            color: var(--text-muted);
+        }
+        .chip.ok   { color: var(--ok);    background: var(--accent-dim); border-color: var(--accent-border); }
+        .chip.bad  { color: var(--bad);   background: var(--bad-dim);    border-color: var(--bad-border); }
+        .chip.warn { color: var(--amber); background: var(--amber-dim);  border-color: var(--amber-border); }
+
+        .warn-box {
+            border: 1px solid var(--bad-border);
+            background: var(--bad-dim);
+            color: var(--bad);
+            border-radius: var(--radius-md);
+            padding: 9px 12px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            line-height: 1.6;
+        }
+        .warn-box.amber { border-color: var(--amber-border); background: var(--amber-dim); color: var(--amber); }
+
+        .sect {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--surface);
+            overflow: hidden;
+        }
+
+        .sect-head {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sect-name {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            flex: 1;
+        }
+        .sect-name .dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 7px; }
+
+        .sect-body { padding: 10px 12px; }
+
+        table.kv { width: 100%; border-collapse: collapse; }
+        table.kv td {
+            padding: 6px 8px;
+            border-top: 1px solid var(--border);
+            font-size: 12px;
+            vertical-align: top;
+        }
+        table.kv tr:first-child td { border-top: none; }
+        td.kv-key {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--accent);
+            white-space: nowrap;
+            width: 1%;
+        }
+        td.kv-val { font-family: var(--font-mono); font-size: 11.5px; word-break: break-all; }
+        td.kv-val .sub { color: var(--text-dim); }
+
+        ul.plain { list-style: none; }
+        ul.plain li {
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            padding: 4px 0;
+            word-break: break-all;
+        }
+        ul.plain li .san-type {
+            display: inline-block;
+            font-size: 9.5px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 1px 6px;
+            margin-right: 8px;
+        }
+
+        .mono-blob {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            word-break: break-all;
+            color: var(--text-muted);
+            line-height: 1.7;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <a href="../" class="back">← hub</a>
+        <span class="sep">/</span>
+        <span class="header-title">CSR Decoder</span>
+        <span class="header-badge">PKCS#10</span>
+        <span class="header-note">nothing leaves this page</span>
+    </header>
+
+    <div class="workspace">
+        <div class="input-panel">
+            <div class="panel-head">
+                <span class="panel-title">Paste PEM CSR</span>
+                <button class="btn" onclick="loadSample()">Sample</button>
+                <button class="btn" onclick="clearInput()">Clear</button>
+            </div>
+            <textarea id="input" spellcheck="false"
+                placeholder="-----BEGIN CERTIFICATE REQUEST-----
+...
+-----END CERTIFICATE REQUEST-----
+
+Bare base64 without the PEM armor also works. Decoding runs as you type — entirely in your browser."></textarea>
+        </div>
+
+        <div class="results-panel">
+            <div class="panel-head">
+                <span class="panel-title">Decoded request</span>
+            </div>
+            <div class="results-body" id="results">
+                <div class="empty-note">No CSR yet — paste one on the left.</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SAMPLE = `-----BEGIN CERTIFICATE REQUEST-----
+MIIBsTCCAVcCAQAwgYQxCzAJBgNVBAYTAlVTMRMwEQYDVQQIDApDYWxpZm9ybmlh
+MRYwFAYDVQQHDA1TYW4gRnJhbmNpc2NvMRUwEwYDVQQKDAxFeGFtcGxlIENvcnAx
+FzAVBgNVBAsMDkluZnJhc3RydWN0dXJlMRgwFgYDVQQDDA9hcGkuZXhhbXBsZS5j
+b20wWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQlCyqt+g1Qqjm4WALIYkg/AlOZ
+LQKbUMlIpb+cyR0OZ1KjHSbJ/wDLNA2EkG17NduLO6UKwuAX4TEDJ0ACbPK8oHAw
+bgYJKoZIhvcNAQkOMWEwXzAxBgNVHREEKjAogg9hcGkuZXhhbXBsZS5jb22CD3d3
+dy5leGFtcGxlLmNvbYcEywBxCjALBgNVHQ8EBAMCBaAwHQYDVR0lBBYwFAYIKwYB
+BQUHAwEGCCsGAQUFBwMCMAoGCCqGSM49BAMCA0gAMEUCIAuYHGTuYNKc6j/Snmjk
+4wmOSkn40PKkD1q/lYGS9K3KAiEAmHi3vycHXfPP7PHpmCi0jY8jgInRtVc1ffyK
+aqo0QoU=
+-----END CERTIFICATE REQUEST-----`;
+
+        // ── OID tables ──────────────────────────────────────────
+        const DN_OIDS = {
+            '2.5.4.3': 'CN', '2.5.4.6': 'C', '2.5.4.7': 'L', '2.5.4.8': 'ST',
+            '2.5.4.10': 'O', '2.5.4.11': 'OU', '2.5.4.5': 'serialNumber',
+            '2.5.4.9': 'street', '2.5.4.17': 'postalCode', '2.5.4.4': 'SN',
+            '2.5.4.42': 'givenName', '2.5.4.12': 'title', '2.5.4.13': 'description',
+            '2.5.4.15': 'businessCategory', '2.5.4.46': 'dnQualifier',
+            '1.2.840.113549.1.9.1': 'emailAddress',
+            '0.9.2342.19200300.100.1.25': 'DC',
+            '0.9.2342.19200300.100.1.1': 'UID',
+            '1.3.6.1.4.1.311.60.2.1.2': 'jurisdictionST',
+            '1.3.6.1.4.1.311.60.2.1.3': 'jurisdictionC',
+        };
+
+        const SIG_ALGS = {
+            '1.2.840.113549.1.1.4': ['md5WithRSAEncryption', 'MD5', 'RSA'],
+            '1.2.840.113549.1.1.5': ['sha1WithRSAEncryption', 'SHA-1', 'RSA'],
+            '1.2.840.113549.1.1.11': ['sha256WithRSAEncryption', 'SHA-256', 'RSA'],
+            '1.2.840.113549.1.1.12': ['sha384WithRSAEncryption', 'SHA-384', 'RSA'],
+            '1.2.840.113549.1.1.13': ['sha512WithRSAEncryption', 'SHA-512', 'RSA'],
+            '1.2.840.113549.1.1.10': ['rsassa-pss', null, 'RSA-PSS'],
+            '1.2.840.10045.4.1': ['ecdsa-with-SHA1', 'SHA-1', 'ECDSA'],
+            '1.2.840.10045.4.3.2': ['ecdsa-with-SHA256', 'SHA-256', 'ECDSA'],
+            '1.2.840.10045.4.3.3': ['ecdsa-with-SHA384', 'SHA-384', 'ECDSA'],
+            '1.2.840.10045.4.3.4': ['ecdsa-with-SHA512', 'SHA-512', 'ECDSA'],
+            '1.3.101.112': ['Ed25519', null, 'Ed25519'],
+            '1.3.101.113': ['Ed448', null, 'Ed448'],
+        };
+
+        const KEY_ALGS = {
+            '1.2.840.113549.1.1.1': 'RSA',
+            '1.2.840.10045.2.1': 'EC',
+            '1.3.101.112': 'Ed25519',
+            '1.3.101.113': 'Ed448',
+            '1.3.101.110': 'X25519',
+        };
+
+        const CURVES = {
+            '1.2.840.10045.3.1.7': ['P-256', 32],
+            '1.3.132.0.34': ['P-384', 48],
+            '1.3.132.0.35': ['P-521', 66],
+            '1.3.132.0.10': ['secp256k1', 32],
+            '1.2.840.10045.3.1.1': ['P-192', 24],
+        };
+
+        const EXT_OIDS = {
+            '2.5.29.17': 'subjectAltName',
+            '2.5.29.15': 'keyUsage',
+            '2.5.29.37': 'extendedKeyUsage',
+            '2.5.29.19': 'basicConstraints',
+            '2.5.29.14': 'subjectKeyIdentifier',
+            '2.5.29.32': 'certificatePolicies',
+            '1.3.6.1.4.1.311.21.10': 'msApplicationPolicies',
+            '1.3.6.1.4.1.311.20.2': 'msCertificateTemplateName',
+        };
+
+        const EKU_OIDS = {
+            '1.3.6.1.5.5.7.3.1': 'serverAuth',
+            '1.3.6.1.5.5.7.3.2': 'clientAuth',
+            '1.3.6.1.5.5.7.3.3': 'codeSigning',
+            '1.3.6.1.5.5.7.3.4': 'emailProtection',
+            '1.3.6.1.5.5.7.3.8': 'timeStamping',
+            '1.3.6.1.5.5.7.3.9': 'OCSPSigning',
+            '1.3.6.1.4.1.311.10.3.4': 'msEFS',
+            '1.3.6.1.4.1.311.20.2.2': 'msSmartcardLogon',
+        };
+
+        const KU_BITS = ['digitalSignature', 'nonRepudiation', 'keyEncipherment', 'dataEncipherment',
+                         'keyAgreement', 'keyCertSign', 'cRLSign', 'encipherOnly', 'decipherOnly'];
+
+        // ── byte helpers ────────────────────────────────────────
+        function hex(bytes, sep = '') {
+            return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join(sep);
+        }
+        function esc(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        // ── PEM → DER ───────────────────────────────────────────
+        function pemToDer(text) {
+            const t = text.trim();
+            if (/-----BEGIN\s+CERTIFICATE-----/.test(t))
+                throw new Error('This is a certificate, not a certificate request. Paste a PKCS#10 CSR (BEGIN CERTIFICATE REQUEST).');
+            if (/-----BEGIN[^-]*PRIVATE KEY-----/.test(t))
+                throw new Error('This is a private key — do not paste private keys into tools. This decoder expects a CSR (BEGIN CERTIFICATE REQUEST).');
+            const m = t.match(/-----BEGIN (?:NEW )?CERTIFICATE REQUEST-----([\s\S]*?)-----END (?:NEW )?CERTIFICATE REQUEST-----/);
+            const b64 = (m ? m[1] : t).replace(/[^A-Za-z0-9+/=]/g, '');
+            if (!b64) throw new Error('No base64 payload found.');
+            let bin;
+            try { bin = atob(b64); } catch { throw new Error('Invalid base64 payload.'); }
+            return Uint8Array.from(bin, c => c.charCodeAt(0));
+        }
+
+        // ── minimal DER parser ──────────────────────────────────
+        // node: { cls, tag, constructed, hdr, start, end, children? }
+        function parseDER(bytes, offset = 0, limit = bytes.length) {
+            if (offset >= limit) throw new Error('DER: unexpected end of data');
+            const tagByte = bytes[offset];
+            const cls = tagByte >> 6;
+            const constructed = !!(tagByte & 0x20);
+            let tag = tagByte & 0x1f;
+            let p = offset + 1;
+            if (tag === 0x1f) {
+                tag = 0;
+                let b;
+                do { b = bytes[p++]; tag = (tag << 7) | (b & 0x7f); } while (b & 0x80);
+            }
+            let len = bytes[p++];
+            if (len & 0x80) {
+                const n = len & 0x7f;
+                if (n === 0 || n > 4) throw new Error('DER: unsupported length encoding');
+                len = 0;
+                for (let i = 0; i < n; i++) len = len * 256 + bytes[p++];
+            }
+            const start = p, end = p + len;
+            if (end > limit) throw new Error('DER: length overruns data');
+            const node = { cls, tag, constructed, hdr: offset, start, end };
+            if (constructed) {
+                node.children = [];
+                let q = start;
+                while (q < end) {
+                    const child = parseDER(bytes, q, end);
+                    node.children.push(child);
+                    q = child.end;
+                }
+            }
+            return node;
+        }
+
+        function content(bytes, node) { return bytes.subarray(node.start, node.end); }
+        function tlv(bytes, node) { return bytes.subarray(node.hdr, node.end); }
+
+        function decodeOID(bytes) {
+            if (!bytes.length) return '';
+            const out = [Math.floor(bytes[0] / 40), bytes[0] % 40];
+            let v = 0;
+            for (let i = 1; i < bytes.length; i++) {
+                v = v * 128 + (bytes[i] & 0x7f);
+                if (!(bytes[i] & 0x80)) { out.push(v); v = 0; }
+            }
+            return out.join('.');
+        }
+
+        function decodeString(bytes, node) {
+            const c = content(bytes, node);
+            switch (node.tag) {
+                case 12: case 22: case 19: case 26: case 20:  // UTF8, IA5, Printable, Visible, T61
+                    return new TextDecoder('utf-8', { fatal: false }).decode(c);
+                case 30: {  // BMPString, UTF-16BE
+                    let s = '';
+                    for (let i = 0; i + 1 < c.length; i += 2) s += String.fromCharCode((c[i] << 8) | c[i + 1]);
+                    return s;
+                }
+                default:
+                    return '(' + hex(c, ':') + ')';
+            }
+        }
+
+        function intBitLength(bytes) {
+            let i = 0;
+            while (i < bytes.length && bytes[i] === 0) i++;
+            if (i === bytes.length) return 0;
+            return (bytes.length - i - 1) * 8 + (32 - Math.clz32(bytes[i]));
+        }
+
+        function intValue(bytes) {  // small positive ints only
+            let v = 0;
+            for (const b of bytes) v = v * 256 + b;
+            return v;
+        }
+
+        // ── CSR field extraction ────────────────────────────────
+        function parseCSR(der) {
+            const root = parseDER(der);
+            if (!(root.cls === 0 && root.tag === 16 && root.children && root.children.length === 3))
+                throw new Error('Not a PKCS#10 structure (expected SEQUENCE of 3 elements).');
+            const [cri, sigAlgNode, sigNode] = root.children;
+            if (!cri.children || cri.children.length < 3)
+                throw new Error('Malformed CertificationRequestInfo.');
+
+            const out = { der };
+
+            // version
+            out.version = intValue(content(der, cri.children[0]));
+
+            // subject
+            out.subject = [];
+            for (const rdn of (cri.children[1].children || [])) {
+                for (const atv of (rdn.children || [])) {
+                    if (!atv.children || atv.children.length < 2) continue;
+                    const oid = decodeOID(content(der, atv.children[0]));
+                    out.subject.push({
+                        oid,
+                        name: DN_OIDS[oid] || oid,
+                        value: decodeString(der, atv.children[1]),
+                    });
+                }
+            }
+
+            // public key
+            const spki = cri.children[2];
+            out.spkiDer = tlv(der, spki);
+            const keyAlg = spki.children[0];
+            const keyOid = decodeOID(content(der, keyAlg.children[0]));
+            out.key = { oid: keyOid, type: KEY_ALGS[keyOid] || keyOid };
+            const keyBits = content(der, spki.children[1]).subarray(1);  // skip unused-bits byte
+            out.key.rawLen = keyBits.length;
+            if (out.key.type === 'RSA') {
+                try {
+                    const rsa = parseDER(keyBits);
+                    out.key.bits = intBitLength(content(keyBits, rsa.children[0]));
+                    out.key.exponent = intValue(content(keyBits, rsa.children[1]));
+                } catch { /* leave size unknown */ }
+            } else if (out.key.type === 'EC') {
+                const curveOid = keyAlg.children[1] ? decodeOID(content(der, keyAlg.children[1])) : null;
+                const curve = CURVES[curveOid];
+                out.key.curve = curve ? curve[0] : (curveOid || 'unknown');
+                out.key.curveBytes = curve ? curve[1] : null;
+            }
+
+            // attributes ([0] IMPLICIT)
+            out.attributes = [];
+            out.extensions = [];
+            const attrs = cri.children[3];
+            if (attrs && attrs.cls === 2 && attrs.tag === 0) {
+                for (const attr of (attrs.children || [])) {
+                    if (!attr.children || !attr.children.length) continue;
+                    const aOid = decodeOID(content(der, attr.children[0]));
+                    if (aOid === '1.2.840.113549.1.9.14') {  // extensionRequest
+                        const set = attr.children[1];
+                        const extSeq = set && set.children && set.children[0];
+                        for (const ext of ((extSeq && extSeq.children) || []))
+                            out.extensions.push(parseExtension(der, ext));
+                    } else if (aOid === '1.2.840.113549.1.9.7') {
+                        out.attributes.push({ oid: aOid, name: 'challengePassword', value: '(present — value hidden)' });
+                    } else if (aOid === '1.2.840.113549.1.9.2') {
+                        const set = attr.children[1];
+                        const v = set && set.children && set.children[0];
+                        out.attributes.push({ oid: aOid, name: 'unstructuredName', value: v ? decodeString(der, v) : '' });
+                    } else {
+                        out.attributes.push({ oid: aOid, name: aOid, value: '(unparsed)' });
+                    }
+                }
+            }
+
+            // signature
+            const sigOid = decodeOID(content(der, sigAlgNode.children[0]));
+            const sigInfo = SIG_ALGS[sigOid];
+            out.sig = {
+                oid: sigOid,
+                name: sigInfo ? sigInfo[0] : sigOid,
+                hash: sigInfo ? sigInfo[1] : null,
+                family: sigInfo ? sigInfo[2] : null,
+                bytes: content(der, sigNode).subarray(1),
+            };
+            out.criDer = tlv(der, cri);
+            return out;
+        }
+
+        function parseExtension(der, ext) {
+            const oid = decodeOID(content(der, ext.children[0]));
+            let idx = 1, critical = false;
+            if (ext.children[idx] && ext.children[idx].tag === 1 && ext.children[idx].cls === 0) {
+                critical = content(der, ext.children[idx])[0] !== 0;
+                idx++;
+            }
+            const valNode = ext.children[idx];
+            const value = valNode ? content(der, valNode) : new Uint8Array();
+            const e = { oid, name: EXT_OIDS[oid] || oid, critical, raw: value };
+            try {
+                if (oid === '2.5.29.17') e.san = parseSAN(value);
+                else if (oid === '2.5.29.15') e.keyUsage = parseKeyUsage(value);
+                else if (oid === '2.5.29.37') e.eku = parseEKU(value);
+                else if (oid === '2.5.29.19') e.basicConstraints = parseBasicConstraints(value);
+            } catch { /* fall back to raw hex */ }
+            return e;
+        }
+
+        function parseSAN(bytes) {
+            const seq = parseDER(bytes);
+            const names = [];
+            for (const gn of (seq.children || [])) {
+                const c = content(bytes, gn);
+                switch (gn.tag) {
+                    case 2: names.push({ type: 'DNS', value: new TextDecoder().decode(c) }); break;
+                    case 1: names.push({ type: 'email', value: new TextDecoder().decode(c) }); break;
+                    case 6: names.push({ type: 'URI', value: new TextDecoder().decode(c) }); break;
+                    case 7: names.push({ type: 'IP', value: ipToString(c) }); break;
+                    case 0: names.push({ type: 'otherName', value: hex(c, ':') }); break;
+                    case 4: names.push({ type: 'dirName', value: '(X.500 name)' }); break;
+                    default: names.push({ type: 'tag ' + gn.tag, value: hex(c, ':') });
+                }
+            }
+            return names;
+        }
+
+        function ipToString(b) {
+            if (b.length === 4) return Array.from(b).join('.');
+            if (b.length === 16) {
+                const groups = [];
+                for (let i = 0; i < 16; i += 2) groups.push(((b[i] << 8) | b[i + 1]).toString(16));
+                return groups.join(':').replace(/(^|:)(0:)+0(:|$)/, '::');
+            }
+            return hex(b, ':');
+        }
+
+        function parseKeyUsage(bytes) {
+            const bs = parseDER(bytes);
+            const c = content(bytes, bs);
+            const unused = c[0];
+            const usages = [];
+            for (let bit = 0; bit < KU_BITS.length; bit++) {
+                const byteIdx = 1 + (bit >> 3);
+                if (byteIdx >= c.length) break;
+                if (byteIdx === c.length - 1 && (7 - (bit & 7)) < unused) break;
+                if (c[byteIdx] & (0x80 >> (bit & 7))) usages.push(KU_BITS[bit]);
+            }
+            return usages;
+        }
+
+        function parseEKU(bytes) {
+            const seq = parseDER(bytes);
+            return (seq.children || []).map(n => {
+                const oid = decodeOID(content(bytes, n));
+                return EKU_OIDS[oid] || oid;
+            });
+        }
+
+        function parseBasicConstraints(bytes) {
+            const seq = parseDER(bytes);
+            const out = { ca: false, pathLen: null };
+            for (const ch of (seq.children || [])) {
+                if (ch.tag === 1) out.ca = content(bytes, ch)[0] !== 0;
+                if (ch.tag === 2) out.pathLen = intValue(content(bytes, ch));
+            }
+            return out;
+        }
+
+        // ── self-signature check ────────────────────────────────
+        async function checkSignature(csr) {
+            if (!window.crypto || !crypto.subtle) return { status: 'skip', msg: 'WebCrypto unavailable' };
+            const { sig } = csr;
+            try {
+                if (sig.family === 'RSA' && sig.hash && sig.hash !== 'MD5') {
+                    const key = await crypto.subtle.importKey('spki', csr.spkiDer,
+                        { name: 'RSASSA-PKCS1-v1_5', hash: sig.hash }, false, ['verify']);
+                    const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, sig.bytes, csr.criDer);
+                    return { status: ok ? 'ok' : 'bad' };
+                }
+                if (sig.family === 'ECDSA' && sig.hash && csr.key.curveBytes) {
+                    const key = await crypto.subtle.importKey('spki', csr.spkiDer,
+                        { name: 'ECDSA', namedCurve: csr.key.curve }, false, ['verify']);
+                    const raw = ecdsaDerToP1363(sig.bytes, csr.key.curveBytes);
+                    const ok = await crypto.subtle.verify({ name: 'ECDSA', hash: sig.hash }, key, raw, csr.criDer);
+                    return { status: ok ? 'ok' : 'bad' };
+                }
+                if (sig.family === 'Ed25519') {
+                    const key = await crypto.subtle.importKey('spki', csr.spkiDer, { name: 'Ed25519' }, false, ['verify']);
+                    const ok = await crypto.subtle.verify('Ed25519', key, sig.bytes, csr.criDer);
+                    return { status: ok ? 'ok' : 'bad' };
+                }
+                return { status: 'skip', msg: 'algorithm not supported for in-browser verification' };
+            } catch (e) {
+                return { status: 'skip', msg: e.message };
+            }
+        }
+
+        function ecdsaDerToP1363(der, size) {
+            const seq = parseDER(der);
+            const pad = (bytes) => {
+                let i = 0;
+                while (i < bytes.length && bytes[i] === 0) i++;
+                const trimmed = bytes.subarray(i);
+                const out = new Uint8Array(size);
+                out.set(trimmed, size - trimmed.length);
+                return out;
+            };
+            const r = pad(content(der, seq.children[0]));
+            const s = pad(content(der, seq.children[1]));
+            const out = new Uint8Array(size * 2);
+            out.set(r, 0); out.set(s, size);
+            return out;
+        }
+
+        // ── render ──────────────────────────────────────────────
+        function section(color, name, body, extraHead = '') {
+            return `<div class="sect">
+                <div class="sect-head"><span class="sect-name"><span class="dot" style="background:${color}"></span>${name}</span>${extraHead}</div>
+                <div class="sect-body">${body}</div>
+            </div>`;
+        }
+
+        function kvTable(rows) {
+            return '<table class="kv">' + rows.map(([k, v]) =>
+                `<tr><td class="kv-key">${esc(k)}</td><td class="kv-val">${v}</td></tr>`).join('') + '</table>';
+        }
+
+        let seq = 0;  // render generation, guards async fills
+
+        async function decode() {
+            const raw = document.getElementById('input').value;
+            const results = document.getElementById('results');
+            const gen = ++seq;
+
+            if (!raw.trim()) {
+                results.innerHTML = '<div class="empty-note">No CSR yet — paste one on the left.</div>';
+                return;
+            }
+
+            let csr;
+            try {
+                csr = parseCSR(pemToDer(raw));
+            } catch (e) {
+                results.innerHTML = `<div class="warn-box">${esc(e.message)}</div>`;
+                return;
+            }
+
+            const html = [];
+            const cn = (csr.subject.find(s => s.name === 'CN') || {}).value;
+            const sans = csr.extensions.find(e => e.san);
+
+            // status chips
+            const keyDesc = csr.key.type === 'RSA' ? `RSA ${csr.key.bits || '?'} bit`
+                : csr.key.type === 'EC' ? `EC ${csr.key.curve}`
+                : csr.key.type;
+            const chips = [
+                `<span class="chip">version ${csr.version + 1}</span>`,
+                `<span class="chip">${esc(keyDesc)}</span>`,
+                `<span class="chip">${esc(csr.sig.name)}</span>`,
+                `<span class="chip" id="sig-chip">signature: checking…</span>`,
+            ];
+            html.push(`<div class="status-row">${chips.join('')}</div>`);
+
+            // warnings
+            if (csr.key.type === 'RSA' && csr.key.bits && csr.key.bits < 2048)
+                html.push(`<div class="warn-box">RSA key is only ${csr.key.bits} bits — below the 2048-bit minimum accepted by public CAs.</div>`);
+            if (csr.sig.hash === 'SHA-1' || csr.sig.hash === 'MD5')
+                html.push(`<div class="warn-box">Signature uses ${csr.sig.hash} — deprecated and rejected by public CAs.</div>`);
+            if (!sans && cn)
+                html.push('<div class="warn-box amber">No subjectAltName requested. Browsers ignore the CN — without a SAN, a certificate issued from this CSR will not validate for any hostname. (Public CAs usually add SANs themselves; internal CAs often copy the CSR verbatim.)</div>');
+            if (csr.attributes.some(a => a.name === 'challengePassword'))
+                html.push('<div class="warn-box amber">Contains a challengePassword attribute (common with SCEP enrollment).</div>');
+
+            // subject
+            html.push(section('#4fd1c5', 'Subject',
+                csr.subject.length
+                    ? kvTable(csr.subject.map(s => [s.name, esc(s.value)]))
+                    : '<div class="mono-blob">(empty subject)</div>'));
+
+            // public key
+            const keyRows = [['algorithm', esc(csr.key.type)]];
+            if (csr.key.type === 'RSA') {
+                keyRows.push(['modulus', `${csr.key.bits || '?'} bits`]);
+                keyRows.push(['exponent', String(csr.key.exponent ?? '?') + (csr.key.exponent === 65537 ? ' <span class="sub">(0x10001)</span>' : '')]);
+            } else if (csr.key.type === 'EC') {
+                keyRows.push(['curve', esc(csr.key.curve)]);
+                keyRows.push(['point', `${csr.key.rawLen} bytes (uncompressed)`]);
+            }
+            keyRows.push(['SPKI SHA-256', '<span id="spki-fp">computing…</span>']);
+            html.push(section('#b794f6', 'Public Key', kvTable(keyRows)));
+
+            // requested extensions
+            if (csr.extensions.length) {
+                const parts = [];
+                for (const e of csr.extensions) {
+                    const crit = e.critical ? ' <span class="chip bad" style="padding:1px 6px;font-size:9.5px">critical</span>' : '';
+                    if (e.san) {
+                        parts.push(`<div style="margin-bottom:8px"><div class="kv-key" style="font-family:var(--font-mono);font-size:11px;color:var(--accent);margin-bottom:4px">subjectAltName${crit}</div><ul class="plain">` +
+                            e.san.map(n => `<li><span class="san-type">${esc(n.type)}</span>${esc(n.value)}</li>`).join('') + '</ul></div>');
+                    } else if (e.keyUsage) {
+                        parts.push(rowBlock('keyUsage' , e.keyUsage.join(', ') || '(none)', crit));
+                    } else if (e.eku) {
+                        parts.push(rowBlock('extendedKeyUsage', e.eku.join(', '), crit));
+                    } else if (e.basicConstraints) {
+                        const bc = e.basicConstraints;
+                        parts.push(rowBlock('basicConstraints', `CA: ${bc.ca}${bc.pathLen !== null ? ', pathLen: ' + bc.pathLen : ''}`, crit));
+                    } else {
+                        parts.push(rowBlock(e.name, hex(e.raw.subarray(0, 40), ':') + (e.raw.length > 40 ? '…' : ''), crit));
+                    }
+                }
+                html.push(section('#63b3ed', 'Requested Extensions', parts.join('')));
+            }
+
+            // other attributes
+            if (csr.attributes.length)
+                html.push(section('#f6ad55', 'Attributes', kvTable(csr.attributes.map(a => [a.name, esc(a.value)]))));
+
+            // signature
+            html.push(section('#ef6b6b', 'Signature', kvTable([
+                ['algorithm', `${esc(csr.sig.name)} <span class="sub">(${csr.sig.oid})</span>`],
+                ['length', `${csr.sig.bytes.length} bytes`],
+                ['value', `<span class="mono-blob">${hex(csr.sig.bytes, ':')}</span>`],
+            ])));
+
+            // fingerprints
+            html.push(section('#4fd1c5', 'Fingerprints', kvTable([
+                ['CSR SHA-256', '<span id="csr-fp">computing…</span>'],
+            ])));
+
+            results.innerHTML = html.join('');
+
+            // async fills
+            if (window.crypto && crypto.subtle) {
+                crypto.subtle.digest('SHA-256', csr.spkiDer).then(d => {
+                    if (gen === seq) fill('spki-fp', hex(new Uint8Array(d), ':').toUpperCase());
+                });
+                crypto.subtle.digest('SHA-256', csr.der).then(d => {
+                    if (gen === seq) fill('csr-fp', hex(new Uint8Array(d), ':').toUpperCase());
+                });
+            } else {
+                fill('spki-fp', 'unavailable'); fill('csr-fp', 'unavailable');
+            }
+
+            checkSignature(csr).then(res => {
+                if (gen !== seq) return;
+                const chip = document.getElementById('sig-chip');
+                if (!chip) return;
+                if (res.status === 'ok') { chip.className = 'chip ok'; chip.textContent = 'signature valid'; }
+                else if (res.status === 'bad') { chip.className = 'chip bad'; chip.textContent = 'signature INVALID'; }
+                else { chip.className = 'chip warn'; chip.textContent = 'signature not checked'; chip.title = res.msg || ''; }
+                if (res.status === 'bad') {
+                    const box = document.createElement('div');
+                    box.className = 'warn-box';
+                    box.textContent = 'Self-signature does not verify against the embedded public key — the CSR is corrupted or has been tampered with.';
+                    chip.closest('.results-body').insertBefore(box, chip.closest('.status-row').nextSibling);
+                }
+            });
+        }
+
+        function rowBlock(name, value, crit) {
+            return `<div style="margin-bottom:8px"><span class="kv-key" style="font-family:var(--font-mono);font-size:11px;color:var(--accent)">${esc(name)}</span>${crit}<div class="kv-val" style="font-family:var(--font-mono);font-size:11.5px;margin-top:2px">${esc(value)}</div></div>`;
+        }
+
+        function fill(id, text) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = text;
+        }
+
+        // ── UI wiring ───────────────────────────────────────────
+        function loadSample() {
+            document.getElementById('input').value = SAMPLE;
+            decode();
+        }
+        function clearInput() {
+            document.getElementById('input').value = '';
+            decode();
+        }
+
+        let debounce;
+        document.getElementById('input').addEventListener('input', () => {
+            clearTimeout(debounce);
+            debounce = setTimeout(decode, 250);
+        });
+    </script>
+</body>
+</html>

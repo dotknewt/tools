@@ -94,6 +94,15 @@ IPv6 companion to `subnet-calculator/`, same four sections: prefix info (canonic
 ### `tailscale-acl-tester/`
 Offline Tailscale ACL policy evaluator. Paste a HuJSON policy (own comment/trailing-comma stripper `hujsonParse()`, no library); test src → dst:port:proto queries for an ALLOW/DENY verdict listing the matching `acls[i]`/`grants[j]` rules, and auto-run the policy's `tests` section with per-assertion pass/fail. Core is `evaluate()` + `selectorMatches()` (returns `true`/`false`/`'maybe'` — offline-unverifiable autogroups count as matches with an amber caveat): resolves nested `groups` (cycle-guarded), `hosts` (values may be CIDRs), tags, and autogroups; IPv4 (uint32) + IPv6 (BigInt) CIDR containment; default-deny; acl dst ports split at the last colon (IPv6-safe). Parse errors surface in a non-blocking err-bar while the last good policy stays rendered.
 
+### `jwt-decoder/`
+JWT decoder. Paste a token (whitespace/quotes/`Bearer ` prefix stripped); decodes header and payload from base64url, renders syntax-highlighted JSON, a claims table with human-readable `exp`/`nbf`/`iat` (UTC + relative delta, expiry status chips), and warnings (`alg: none`, `jku`/`x5u` key URLs). Optional signature verification runs in WebCrypto (`verifyHS()`/`verifyAsym()`): HS* with a shared secret (raw or base64url), RS*/PS*/ES* with an SPKI PEM or JWK public key. JWEs (5 segments) are detected and reported as undecodable.
+
+### `csr-decoder/`
+PKCS#10 CSR decoder with its own minimal DER parser (`parseDER()`, no library). Shows subject DN (OID name map), public key details (RSA modulus size/exponent, EC curve), requested extensions from the extensionRequest attribute (SAN, keyUsage, extendedKeyUsage, basicConstraints), other attributes (challengePassword flagged), signature algorithm, and SHA-256 fingerprints of the CSR and SPKI. Verifies the self-signature with the embedded key via WebCrypto (`checkSignature()`; ECDSA DER→P1363 conversion in `ecdsaDerToP1363()`). Warns on RSA <2048, SHA-1/MD5 signatures, and missing SANs; rejects pasted certificates and private keys with a pointed message.
+
+### `email-header-analyzer/`
+DFIR email header analyzer. Paste raw headers or a full .eml (analysis stops at the first blank line); headers are unfolded and RFC 2047 encoded-words decoded (`decodeWords()`). Renders SPF/DKIM/DMARC verdict chips parsed from Authentication-Results (topmost result per method wins), a Checks list (From vs Return-Path / Reply-To / DKIM d= org-domain alignment via `aligned()`, multiple From headers, missing Date/Message-ID), the Received chain oldest-first with per-hop delays, out-of-order timestamp flags, and private-IP tagging (`parseReceived()`), DKIM-Signature tag summaries (d=/s=/a=), and a collapsible all-headers table.
+
 ## Tool naming convention
 
 Config/file generator tools use the prefix `generate-<name>/` (e.g. `generate-ubuntu-autoinstall/`). Visualizers and interactive tools use a plain descriptive name (e.g. `diamond-model/`, `mind-map/`).

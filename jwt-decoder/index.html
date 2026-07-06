@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JWT Decoder</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0d0f14;
+            --surface: #14171f;
+            --surface-2: #1c2030;
+            --surface-3: #252a3d;
+            --border: rgba(255, 255, 255, 0.07);
+            --border-strong: rgba(255, 255, 255, 0.14);
+            --text: #e8eaf0;
+            --text-muted: #9298a8;
+            --text-dim: #5c6275;
+            --accent: #f6ad55;
+            --accent-dim: rgba(246, 173, 85, 0.12);
+            --accent-border: rgba(246, 173, 85, 0.30);
+            --ok: #4fd1c5;
+            --ok-dim: rgba(79, 209, 197, 0.12);
+            --ok-border: rgba(79, 209, 197, 0.30);
+            --bad: #ef6b6b;
+            --bad-dim: rgba(239, 107, 107, 0.12);
+            --bad-border: rgba(239, 107, 107, 0.30);
+            --purple: #b794f6;
+            --blue: #63b3ed;
+            --amber: #f6ad55;
+            --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            --radius-sm: 4px;
+            --radius-md: 6px;
+            --radius-lg: 10px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 14px;
+            line-height: 1.55;
+            min-height: 100vh;
+        }
+
+        .header {
+            border-bottom: 1px solid var(--border);
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--surface);
+        }
+
+        .back {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            text-decoration: none;
+            letter-spacing: 0.05em;
+            transition: color 0.15s;
+        }
+        .back:hover { color: var(--accent); }
+
+        .sep { color: var(--text-dim); }
+
+        .header-title { font-size: 14px; font-weight: 600; color: var(--text); }
+
+        .header-badge {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--accent);
+            background: var(--accent-dim);
+            border: 1px solid var(--accent-border);
+            border-radius: var(--radius-sm);
+            padding: 2px 7px;
+            letter-spacing: 0.06em;
+        }
+
+        .header-note {
+            margin-left: auto;
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-dim);
+            letter-spacing: 0.04em;
+        }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: minmax(340px, 42%) 1fr;
+            height: calc(100vh - 49px);
+        }
+
+        @media (max-width: 860px) {
+            .workspace { grid-template-columns: 1fr; height: auto; }
+            .results-panel { border-left: none; border-top: 1px solid var(--border); min-height: 400px; }
+            .input-panel textarea { min-height: 180px; }
+        }
+
+        .input-panel {
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border);
+        }
+
+        .panel-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+            flex-shrink: 0;
+            flex-wrap: wrap;
+        }
+
+        .panel-title {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.10em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            flex: 1;
+        }
+
+        .btn {
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            padding: 4px 9px;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s, background 0.15s;
+        }
+        .btn:hover { color: var(--text); border-color: var(--border-strong); background: var(--surface-3); }
+        .btn.flash { color: var(--accent); border-color: var(--accent-border); background: var(--accent-dim); }
+
+        #input {
+            flex: 1;
+            width: 100%;
+            background: transparent;
+            border: none;
+            outline: none;
+            resize: none;
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 12px;
+            line-height: 1.7;
+            padding: 16px 18px;
+            word-break: break-all;
+        }
+        #input::placeholder { color: var(--text-dim); word-break: normal; }
+
+        /* colored token part strip */
+        .parts-strip {
+            border-top: 1px solid var(--border);
+            padding: 10px 14px;
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.06em;
+            display: flex;
+            gap: 14px;
+            color: var(--text-dim);
+            background: var(--surface);
+            flex-shrink: 0;
+        }
+        .parts-strip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+
+        .results-panel {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .results-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .empty-note {
+            color: var(--text-dim);
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            font-style: italic;
+            padding: 24px;
+            text-align: center;
+        }
+
+        /* status chips */
+        .status-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+        .chip {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            letter-spacing: 0.05em;
+            border-radius: var(--radius-sm);
+            padding: 3px 9px;
+            border: 1px solid var(--border-strong);
+            background: var(--surface-2);
+            color: var(--text-muted);
+        }
+        .chip.ok   { color: var(--ok);   background: var(--ok-dim);   border-color: var(--ok-border); }
+        .chip.bad  { color: var(--bad);  background: var(--bad-dim);  border-color: var(--bad-border); }
+        .chip.warn { color: var(--amber); background: var(--accent-dim); border-color: var(--accent-border); }
+
+        .warn-box {
+            border: 1px solid var(--bad-border);
+            background: var(--bad-dim);
+            color: var(--bad);
+            border-radius: var(--radius-md);
+            padding: 9px 12px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            line-height: 1.6;
+        }
+        .warn-box.amber { border-color: var(--accent-border); background: var(--accent-dim); color: var(--amber); }
+
+        /* sections */
+        .sect {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--surface);
+            overflow: hidden;
+        }
+
+        .sect-head {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sect-name {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            flex: 1;
+        }
+        .sect-name .dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 7px; vertical-align: 0; }
+
+        .sect-body { padding: 10px 12px; }
+
+        pre.json {
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            line-height: 1.7;
+            white-space: pre-wrap;
+            word-break: break-word;
+            color: var(--text);
+        }
+        pre.json .k { color: var(--blue); }
+        pre.json .s { color: var(--ok); }
+        pre.json .n { color: var(--amber); }
+        pre.json .b { color: var(--purple); }
+
+        /* claims table */
+        table.claims { width: 100%; border-collapse: collapse; }
+        table.claims td {
+            padding: 6px 8px;
+            border-top: 1px solid var(--border);
+            font-size: 12px;
+            vertical-align: top;
+        }
+        table.claims tr:first-child td { border-top: none; }
+        td.claim-key {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--accent);
+            white-space: nowrap;
+            width: 1%;
+        }
+        td.claim-desc { color: var(--text-dim); font-size: 11px; white-space: nowrap; width: 1%; }
+        td.claim-val { font-family: var(--font-mono); font-size: 11.5px; word-break: break-all; }
+        .claim-sub { color: var(--text-muted); font-size: 10.5px; font-family: var(--font-mono); display: block; margin-top: 1px; }
+        .claim-sub.ok { color: var(--ok); }
+        .claim-sub.bad { color: var(--bad); }
+
+        .sig-raw {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            word-break: break-all;
+            color: var(--text-muted);
+            line-height: 1.6;
+        }
+
+        /* verify form */
+        .verify-form { display: flex; flex-direction: column; gap: 8px; }
+
+        .verify-form label {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+        }
+
+        .verify-form input[type=text], .verify-form textarea {
+            width: 100%;
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            padding: 7px 9px;
+            outline: none;
+        }
+        .verify-form input:focus, .verify-form textarea:focus { border-color: var(--accent-border); }
+        .verify-form textarea { min-height: 96px; resize: vertical; line-height: 1.5; }
+
+        .verify-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+        .checkbox-row {
+            display: flex; align-items: center; gap: 6px;
+            font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted);
+        }
+        .checkbox-row input { accent-color: var(--accent); }
+
+        #verify-result { font-family: var(--font-mono); font-size: 11px; }
+        #verify-result.ok { color: var(--ok); }
+        #verify-result.bad { color: var(--bad); }
+        #verify-result.warn { color: var(--amber); }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <a href="../" class="back">← hub</a>
+        <span class="sep">/</span>
+        <span class="header-title">JWT Decoder</span>
+        <span class="header-badge">OFFLINE</span>
+        <span class="header-note">nothing leaves this page</span>
+    </header>
+
+    <div class="workspace">
+        <div class="input-panel">
+            <div class="panel-head">
+                <span class="panel-title">Paste token</span>
+                <button class="btn" onclick="loadSample()">Sample</button>
+                <button class="btn" onclick="clearInput()">Clear</button>
+            </div>
+            <textarea id="input" spellcheck="false"
+                placeholder="Paste a JWT (header.payload.signature).
+
+Whitespace, surrounding quotes, and a Bearer prefix are stripped automatically. Decoding happens as you type — entirely in your browser."></textarea>
+            <div class="parts-strip">
+                <span><span class="dot" style="background:#ef6b6b"></span>header</span>
+                <span><span class="dot" style="background:#b794f6"></span>payload</span>
+                <span><span class="dot" style="background:#4fd1c5"></span>signature</span>
+            </div>
+        </div>
+
+        <div class="results-panel">
+            <div class="panel-head">
+                <span class="panel-title">Decoded</span>
+                <button class="btn" onclick="copyJSON(this)">Copy payload JSON</button>
+            </div>
+            <div class="results-body" id="results">
+                <div class="empty-note">No token yet — paste a JWT on the left.</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SAMPLE_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImRlbW8ta2V5LTEifQ.eyJpc3MiOiJodHRwczovL2F1dGguZXhhbXBsZS5jb20iLCJzdWIiOiJ1c2VyXzU4NDEyIiwiYXVkIjoiaHR0cHM6Ly9hcGkuZXhhbXBsZS5jb20iLCJleHAiOjE4OTM0NTYwMDAsIm5iZiI6MTc1MTc2MDAwMCwiaWF0IjoxNzUxNzYwMDAwLCJqdGkiOiJmMmIxYzllNC03YTMwLTRiMWQtOWY2ZS0yZDRjOGExYjVlNzAiLCJzY29wZSI6InJlYWQ6cmVwb3J0cyB3cml0ZTpyZXBvcnRzIiwiZW1haWwiOiJhbmFseXN0QGV4YW1wbGUuY29tIiwibmFtZSI6IkF2ZXJ5IEFuYWx5c3QiLCJyb2xlcyI6WyJhbmFseXN0Iiwidmlld2VyIl19.v1WnFt7khS2-7N6KJiNqB_MjaaoLoQ6_GUaY_nrQcBs';
+        const SAMPLE_SECRET = 'correct-horse-battery-staple';
+
+        // Registered + common claims (RFC 7519 §4.1 and frequent extras)
+        const CLAIM_INFO = {
+            iss: 'issuer', sub: 'subject', aud: 'audience', exp: 'expires',
+            nbf: 'not before', iat: 'issued at', jti: 'token id',
+            scope: 'scopes', scp: 'scopes', azp: 'authorized party',
+            nonce: 'nonce', sid: 'session id', client_id: 'client',
+            email: 'email', name: 'name', roles: 'roles', groups: 'groups',
+            auth_time: 'auth time', amr: 'auth methods', acr: 'auth context',
+        };
+        const TIME_CLAIMS = new Set(['exp', 'nbf', 'iat', 'auth_time']);
+
+        let decoded = null;   // { header, payload, parts }
+
+        // ── base64url ───────────────────────────────────────────
+        function b64uToBytes(s) {
+            s = s.replace(/-/g, '+').replace(/_/g, '/');
+            while (s.length % 4) s += '=';
+            const bin = atob(s);
+            const out = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+            return out;
+        }
+        function b64uToText(s) {
+            return new TextDecoder('utf-8', { fatal: false }).decode(b64uToBytes(s));
+        }
+
+        // ── HTML helpers ────────────────────────────────────────
+        function esc(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function highlightJSON(obj) {
+            const json = esc(JSON.stringify(obj, null, 2));
+            return json.replace(/("(?:[^"\\]|\\.)*")(\s*:)?|\b(true|false|null)\b|-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b/g,
+                (m, str, colon, kw) => {
+                    if (str) return colon ? `<span class="k">${str}</span>${colon}` : `<span class="s">${str}</span>`;
+                    if (kw) return `<span class="b">${kw}</span>`;
+                    return `<span class="n">${m}</span>`;
+                });
+        }
+
+        function fmtTime(sec) {
+            const d = new Date(sec * 1000);
+            if (isNaN(d)) return null;
+            return d.toISOString().replace('T', ' ').replace(/\.\d+Z/, ' UTC');
+        }
+
+        function fmtRel(sec) {
+            let delta = sec - Math.floor(Date.now() / 1000);
+            const past = delta < 0;
+            delta = Math.abs(delta);
+            const units = [[31536000, 'y'], [86400, 'd'], [3600, 'h'], [60, 'm'], [1, 's']];
+            const out = [];
+            for (const [size, label] of units) {
+                if (delta >= size && out.length < 2) {
+                    out.push(Math.floor(delta / size) + label);
+                    delta %= size;
+                }
+            }
+            if (!out.length) out.push('0s');
+            return past ? out.join(' ') + ' ago' : 'in ' + out.join(' ');
+        }
+
+        // ── decode ──────────────────────────────────────────────
+        function cleanToken(raw) {
+            return raw.trim()
+                .replace(/^["']|["']$/g, '')
+                .replace(/^Bearer\s+/i, '')
+                .replace(/\s+/g, '');
+        }
+
+        function decode() {
+            const raw = cleanToken(document.getElementById('input').value);
+            const results = document.getElementById('results');
+            decoded = null;
+
+            if (!raw) {
+                results.innerHTML = '<div class="empty-note">No token yet — paste a JWT on the left.</div>';
+                return;
+            }
+
+            const parts = raw.split('.');
+            if (parts.length === 5) {
+                results.innerHTML = '<div class="warn-box amber">This is a JWE (5 segments) — the payload is encrypted and cannot be decoded without the key. ' + tryHeaderOnly(parts[0]) + '</div>';
+                return;
+            }
+            if (parts.length !== 3) {
+                results.innerHTML = `<div class="warn-box">Not a JWT: expected 3 dot-separated segments, got ${parts.length}.</div>`;
+                return;
+            }
+
+            let header, payload;
+            try { header = JSON.parse(b64uToText(parts[0])); }
+            catch { results.innerHTML = '<div class="warn-box">Failed to decode the header segment — not valid base64url-encoded JSON.</div>'; return; }
+            try { payload = JSON.parse(b64uToText(parts[1])); }
+            catch { results.innerHTML = '<div class="warn-box">Header decoded, but the payload segment is not valid base64url-encoded JSON.</div>'; return; }
+
+            decoded = { header, payload, parts };
+            render();
+        }
+
+        function tryHeaderOnly(seg) {
+            try {
+                const h = JSON.parse(b64uToText(seg));
+                return 'Header: <b>' + esc(JSON.stringify(h)) + '</b>';
+            } catch { return ''; }
+        }
+
+        // ── render ──────────────────────────────────────────────
+        function render() {
+            const { header, payload, parts } = decoded;
+            const now = Math.floor(Date.now() / 1000);
+            const html = [];
+
+            // status chips
+            const chips = [];
+            chips.push(`<span class="chip ${header.alg === 'none' ? 'bad' : ''}">alg: ${esc(header.alg || '?')}</span>`);
+            if (header.typ) chips.push(`<span class="chip">typ: ${esc(header.typ)}</span>`);
+            if (header.kid) chips.push(`<span class="chip">kid: ${esc(header.kid)}</span>`);
+            if (typeof payload.exp === 'number') {
+                chips.push(payload.exp < now
+                    ? `<span class="chip bad">expired ${fmtRel(payload.exp)}</span>`
+                    : `<span class="chip ok">expires ${fmtRel(payload.exp)}</span>`);
+            }
+            if (typeof payload.nbf === 'number' && payload.nbf > now)
+                chips.push(`<span class="chip warn">not valid yet (nbf ${fmtRel(payload.nbf)})</span>`);
+            html.push(`<div class="status-row">${chips.join('')}</div>`);
+
+            // warnings
+            if (header.alg === 'none')
+                html.push('<div class="warn-box">alg is "none" — this token is unsigned. Any consumer that accepts it performs no integrity check at all.</div>');
+            if (header.jku || header.x5u)
+                html.push('<div class="warn-box amber">Header contains a key URL (jku/x5u). Verifiers that fetch keys from attacker-controlled URLs can be tricked into accepting forged tokens.</div>');
+
+            html.push(section('#ef6b6b', 'Header', `<pre class="json">${highlightJSON(header)}</pre>`));
+            html.push(section('#b794f6', 'Payload', `<pre class="json">${highlightJSON(payload)}</pre>`));
+
+            // claims table
+            const rows = Object.entries(payload).map(([k, v]) => {
+                let valHtml = `<td class="claim-val">${esc(typeof v === 'string' ? v : JSON.stringify(v))}`;
+                if (TIME_CLAIMS.has(k) && typeof v === 'number') {
+                    const t = fmtTime(v);
+                    if (t) {
+                        const cls = (k === 'exp') ? (v < now ? 'bad' : 'ok') : '';
+                        valHtml += `<span class="claim-sub ${cls}">${t} · ${fmtRel(v)}</span>`;
+                    }
+                }
+                valHtml += '</td>';
+                return `<tr><td class="claim-key">${esc(k)}</td><td class="claim-desc">${CLAIM_INFO[k] || ''}</td>${valHtml}</tr>`;
+            }).join('');
+            html.push(section('#63b3ed', 'Claims', `<table class="claims">${rows}</table>`));
+
+            // signature + verify
+            const sigBytes = safeSigLen(parts[2]);
+            const alg = String(header.alg || '');
+            let verifyHtml = `<div class="sig-raw">${esc(parts[2]) || '<i>(empty)</i>'}${sigBytes !== null ? ` <span style="color:var(--text-dim)">— ${sigBytes} bytes</span>` : ''}</div>`;
+
+            if (!window.crypto || !crypto.subtle) {
+                verifyHtml += '<div class="warn-box amber" style="margin-top:10px">Signature verification unavailable: this browser does not expose WebCrypto in this context.</div>';
+            } else if (/^HS(256|384|512)$/.test(alg)) {
+                verifyHtml += `
+                    <div class="verify-form" style="margin-top:12px">
+                        <label>Verify with shared secret (${esc(alg)})</label>
+                        <input type="text" id="secret" placeholder="secret" spellcheck="false" autocomplete="off">
+                        <div class="verify-row">
+                            <span class="checkbox-row"><input type="checkbox" id="secret-b64"> secret is base64url-encoded</span>
+                            <button class="btn" onclick="verifyHS()">Verify</button>
+                            <span id="verify-result"></span>
+                        </div>
+                    </div>`;
+            } else if (/^(RS|PS)(256|384|512)$|^ES(256|384|512)$/.test(alg)) {
+                verifyHtml += `
+                    <div class="verify-form" style="margin-top:12px">
+                        <label>Verify with public key (${esc(alg)}) — SPKI PEM or JWK</label>
+                        <textarea id="pubkey" spellcheck="false" placeholder="-----BEGIN PUBLIC KEY-----&#10;...&#10;-----END PUBLIC KEY-----&#10;&#10;or a JWK: {&quot;kty&quot;:&quot;EC&quot;, ...}"></textarea>
+                        <div class="verify-row">
+                            <button class="btn" onclick="verifyAsym()">Verify</button>
+                            <span id="verify-result"></span>
+                        </div>
+                    </div>`;
+            } else if (alg && alg !== 'none') {
+                verifyHtml += `<div class="warn-box amber" style="margin-top:10px">Verification for alg "${esc(alg)}" is not supported here.</div>`;
+            }
+            html.push(section('#4fd1c5', 'Signature', verifyHtml));
+
+            document.getElementById('results').innerHTML = html.join('');
+        }
+
+        function section(color, name, body) {
+            return `<div class="sect">
+                <div class="sect-head"><span class="sect-name"><span class="dot" style="background:${color}"></span>${name}</span></div>
+                <div class="sect-body">${body}</div>
+            </div>`;
+        }
+
+        function safeSigLen(seg) {
+            try { return b64uToBytes(seg).length; } catch { return null; }
+        }
+
+        // ── verification ────────────────────────────────────────
+        function setVerifyResult(cls, msg) {
+            const el = document.getElementById('verify-result');
+            if (el) { el.className = cls; el.textContent = msg; }
+        }
+
+        async function verifyHS() {
+            if (!decoded) return;
+            const alg = decoded.header.alg;
+            const hash = 'SHA-' + alg.slice(2);
+            const secretStr = document.getElementById('secret').value;
+            try {
+                const keyBytes = document.getElementById('secret-b64').checked
+                    ? b64uToBytes(secretStr)
+                    : new TextEncoder().encode(secretStr);
+                const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash }, false, ['verify']);
+                const ok = await crypto.subtle.verify('HMAC', key,
+                    b64uToBytes(decoded.parts[2]),
+                    new TextEncoder().encode(decoded.parts[0] + '.' + decoded.parts[1]));
+                setVerifyResult(ok ? 'ok' : 'bad', ok ? '✓ signature valid' : '✗ signature invalid');
+            } catch (e) {
+                setVerifyResult('warn', 'error: ' + e.message);
+            }
+        }
+
+        async function verifyAsym() {
+            if (!decoded) return;
+            const alg = decoded.header.alg;
+            const hash = 'SHA-' + alg.slice(2);
+            const raw = document.getElementById('pubkey').value.trim();
+            try {
+                let key;
+                const family = alg.slice(0, 2);
+                const params =
+                    family === 'RS' ? { name: 'RSASSA-PKCS1-v1_5', hash } :
+                    family === 'PS' ? { name: 'RSA-PSS', hash } :
+                    { name: 'ECDSA', namedCurve: { ES256: 'P-256', ES384: 'P-384', ES512: 'P-521' }[alg] };
+
+                if (raw.startsWith('{')) {
+                    key = await crypto.subtle.importKey('jwk', JSON.parse(raw), params, false, ['verify']);
+                } else {
+                    const b64 = raw.replace(/-----(BEGIN|END)[^-]+-----/g, '').replace(/\s+/g, '');
+                    const der = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+                    key = await crypto.subtle.importKey('spki', der, params, false, ['verify']);
+                }
+
+                const verifyParams =
+                    family === 'RS' ? 'RSASSA-PKCS1-v1_5' :
+                    family === 'PS' ? { name: 'RSA-PSS', saltLength: parseInt(alg.slice(2)) / 8 } :
+                    { name: 'ECDSA', hash };
+
+                const ok = await crypto.subtle.verify(verifyParams, key,
+                    b64uToBytes(decoded.parts[2]),
+                    new TextEncoder().encode(decoded.parts[0] + '.' + decoded.parts[1]));
+                setVerifyResult(ok ? 'ok' : 'bad', ok ? '✓ signature valid' : '✗ signature invalid');
+            } catch (e) {
+                setVerifyResult('warn', 'error: ' + e.message);
+            }
+        }
+
+        // ── UI wiring ───────────────────────────────────────────
+        function loadSample() {
+            document.getElementById('input').value = SAMPLE_TOKEN;
+            decode();
+            // pre-fill the demo secret so Verify works out of the box
+            const secret = document.getElementById('secret');
+            if (secret) secret.value = SAMPLE_SECRET;
+        }
+
+        function clearInput() {
+            document.getElementById('input').value = '';
+            decode();
+        }
+
+        function copyJSON(btn) {
+            if (!decoded) return;
+            navigator.clipboard.writeText(JSON.stringify(decoded.payload, null, 2)).then(() => {
+                btn.classList.add('flash');
+                setTimeout(() => btn.classList.remove('flash'), 600);
+            });
+        }
+
+        let debounce;
+        document.getElementById('input').addEventListener('input', () => {
+            clearTimeout(debounce);
+            debounce = setTimeout(decode, 200);
+        });
+    </script>
+</body>
+</html>
