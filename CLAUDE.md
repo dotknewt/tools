@@ -103,6 +103,9 @@ PKCS#10 CSR decoder with its own minimal DER parser (`parseDER()`, no library). 
 ### `email-header-analyzer/`
 DFIR email header analyzer. Paste raw headers or a full .eml (analysis stops at the first blank line); headers are unfolded and RFC 2047 encoded-words decoded (`decodeWords()`). Renders SPF/DKIM/DMARC verdict chips parsed from Authentication-Results (topmost result per method wins), a Checks list (From vs Return-Path / Reply-To / DKIM d= org-domain alignment via `aligned()`, multiple From headers, missing Date/Message-ID), the Received chain oldest-first with per-hop delays, out-of-order timestamp flags, and private-IP tagging (`parseReceived()`), DKIM-Signature tag summaries (d=/s=/a=), and a collapsible all-headers table.
 
+### `rom-organizer/`
+Game ROM verifier/organizer against No-Intro/Redump Logiqx DAT files. State in a single object `S`; DAT parsed via DOMParser into a `bySizeCrc` Map (`size:crc` keys, value = rom-id array since BIOS roms collide across games). Own zip central-directory reader (`findEOCD()`/`readZip()`) matches zipped ROMs from stored CRC32+size with no decompression (zip64 detected, reported unsupported); hashing is a table CRC32 plus hand-rolled incremental `Sha1` (tie-breaks) and `Md5` (RetroAchievements hash, iNES/SNES-copier header strip in `raSkip()`). Optional user-fetched RA game-list JSON badges files and feeds the 1G1R ranking. 1G1R engine (`parseTags()`/`apply1g1r()`) groups by `cloneof` or base title, filters beta/proto/non-English, ranks by region priority + revision; losers move to `_removed/`, never deleted. Renames via `FileSystemFileHandle.move()` — Chromium-only; `webkitdirectory` read-only fallback elsewhere.
+
 ## Tool naming convention
 
 Config/file generator tools use the prefix `generate-<name>/` (e.g. `generate-ubuntu-autoinstall/`). Visualizers and interactive tools use a plain descriptive name (e.g. `diamond-model/`, `mind-map/`).

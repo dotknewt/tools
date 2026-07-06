@@ -15,3 +15,4 @@
 - [x] jwt-decoder
 - [x] csr-decoder
 - [x] email-header-analyzer
+- [x] rom-organizer
