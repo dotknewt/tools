@@ -91,6 +91,9 @@ Crontab expression builder/decoder. A main expression input, preset select, and 
 ### `ipv6-subnet-calculator/`
 IPv6 companion to `subnet-calculator/`, same four sections: prefix info (canonical RFC 5952 compressed + expanded forms, address counts as powers of two, special-purpose kind detection from an ordered `KINDS` table), contains check, split into subnets (capped at 1024 rows), and summarize (range merge + BigInt `rangeToCIDRs()`). All math on BigInt 128-bit values; `parseIP()` handles `::` compression and embedded IPv4 tails (`::ffff:192.0.2.1`); bare addresses are treated as /128.
 
+### `tailscale-acl-tester/`
+Offline Tailscale ACL policy evaluator. Paste a HuJSON policy (own comment/trailing-comma stripper `hujsonParse()`, no library); test src → dst:port:proto queries for an ALLOW/DENY verdict listing the matching `acls[i]`/`grants[j]` rules, and auto-run the policy's `tests` section with per-assertion pass/fail. Core is `evaluate()` + `selectorMatches()` (returns `true`/`false`/`'maybe'` — offline-unverifiable autogroups count as matches with an amber caveat): resolves nested `groups` (cycle-guarded), `hosts` (values may be CIDRs), tags, and autogroups; IPv4 (uint32) + IPv6 (BigInt) CIDR containment; default-deny; acl dst ports split at the last colon (IPv6-safe). Parse errors surface in a non-blocking err-bar while the last good policy stays rendered.
+
 ## Tool naming convention
 
 Config/file generator tools use the prefix `generate-<name>/` (e.g. `generate-ubuntu-autoinstall/`). Visualizers and interactive tools use a plain descriptive name (e.g. `diamond-model/`, `mind-map/`).

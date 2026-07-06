@@ -1,0 +1,1229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tailscale ACL Tester</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0d0f14;
+            --surface: #14171f;
+            --surface-2: #1c2030;
+            --surface-3: #252a3d;
+            --border: rgba(255, 255, 255, 0.07);
+            --border-strong: rgba(255, 255, 255, 0.14);
+            --text: #e8eaf0;
+            --text-muted: #9298a8;
+            --text-dim: #5c6275;
+            --accent: #4fd1c5;
+            --accent-dim: rgba(79, 209, 197, 0.12);
+            --accent-border: rgba(79, 209, 197, 0.30);
+            --amber: #f6ad55;
+            --green: #68d391;
+            --green-dim: rgba(104, 211, 145, 0.10);
+            --green-border: rgba(104, 211, 145, 0.35);
+            --red: #fc8181;
+            --red-dim: rgba(252, 129, 129, 0.10);
+            --red-border: rgba(252, 129, 129, 0.35);
+            --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            --radius-sm: 4px;
+            --radius-md: 6px;
+            --radius-lg: 10px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 14px;
+            line-height: 1.55;
+            min-height: 100vh;
+        }
+
+        .header {
+            border-bottom: 1px solid var(--border);
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--surface);
+        }
+
+        .back {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            text-decoration: none;
+            letter-spacing: 0.05em;
+            transition: color 0.15s;
+        }
+        .back:hover { color: var(--accent); }
+
+        .sep { color: var(--text-dim); }
+
+        .header-title { font-size: 14px; font-weight: 600; color: var(--text); }
+
+        .header-badge {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--accent);
+            background: var(--accent-dim);
+            border: 1px solid var(--accent-border);
+            border-radius: var(--radius-sm);
+            padding: 2px 7px;
+            letter-spacing: 0.06em;
+        }
+
+        .header-count {
+            margin-left: auto;
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-dim);
+            letter-spacing: 0.04em;
+        }
+        .header-count b { color: var(--accent); font-weight: 600; }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: minmax(340px, 44%) 1fr;
+            height: calc(100vh - 49px);
+        }
+
+        @media (max-width: 860px) {
+            .workspace { grid-template-columns: 1fr; height: auto; }
+            .results-panel { border-left: none; border-top: 1px solid var(--border); min-height: 400px; }
+            .input-panel textarea { min-height: 260px; }
+        }
+
+        .input-panel {
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border);
+        }
+
+        .panel-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+            flex-shrink: 0;
+            flex-wrap: wrap;
+        }
+
+        .panel-title {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.10em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            flex: 1;
+        }
+
+        .btn {
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            padding: 4px 9px;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s, background 0.15s;
+        }
+        .btn:hover { color: var(--text); border-color: var(--border-strong); background: var(--surface-3); }
+        .btn.flash { color: var(--accent); border-color: var(--accent-border); background: var(--accent-dim); }
+
+        .err-bar {
+            display: none;
+            padding: 8px 14px;
+            background: rgba(246, 173, 85, 0.08);
+            border-bottom: 1px solid rgba(246, 173, 85, 0.3);
+            color: var(--amber);
+            font-family: var(--font-mono);
+            font-size: 11px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .err-bar.show { display: block; }
+
+        #policy {
+            flex: 1;
+            width: 100%;
+            background: transparent;
+            border: none;
+            outline: none;
+            resize: none;
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 12px;
+            line-height: 1.7;
+            padding: 16px 18px;
+        }
+        #policy::placeholder { color: var(--text-dim); }
+
+        .results-panel {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .results-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .empty-note {
+            color: var(--text-dim);
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            font-style: italic;
+            padding: 16px;
+            text-align: center;
+        }
+
+        .sec {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--surface);
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        .sec-head {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sec-name {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            flex: 1;
+        }
+
+        .sec-pill {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--accent);
+            background: var(--accent-dim);
+            border: 1px solid var(--accent-border);
+            border-radius: 9px;
+            padding: 1px 8px;
+        }
+        .sec-pill.ok   { color: var(--green); background: var(--green-dim); border-color: var(--green-border); }
+        .sec-pill.bad  { color: var(--red);   background: var(--red-dim);   border-color: var(--red-border); }
+
+        .sec-body { padding: 10px 12px; }
+
+        /* entity summary chips */
+        .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+        .chip {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--text-muted);
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            padding: 2px 9px;
+            letter-spacing: 0.03em;
+        }
+        .chip b { color: var(--accent); font-weight: 600; }
+        .ignored-note {
+            margin-top: 8px;
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--text-dim);
+        }
+
+        /* query form */
+        .query-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px 10px;
+            margin-bottom: 10px;
+        }
+        .qfield label {
+            display: block;
+            font-family: var(--font-mono);
+            font-size: 9.5px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            margin-bottom: 3px;
+        }
+        .qfield input, .qfield select {
+            width: 100%;
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            padding: 6px 8px;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .qfield input:focus, .qfield select:focus { border-color: var(--accent-border); }
+        .qfield input.invalid { border-color: var(--red-border); }
+        .qfield input::placeholder { color: var(--text-dim); }
+        .qfield select { appearance: none; cursor: pointer; }
+
+        .principal-note {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--text-dim);
+            margin-bottom: 10px;
+            line-height: 1.8;
+            word-break: break-all;
+        }
+        .principal-note b { color: var(--text-muted); font-weight: 500; }
+        .principal-note .unk { color: var(--amber); }
+
+        /* verdict */
+        .verdict {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 12px 14px;
+            text-align: center;
+            margin-bottom: 10px;
+            position: relative;
+        }
+        .verdict-word {
+            font-family: var(--font-mono);
+            font-size: 19px;
+            font-weight: 600;
+            letter-spacing: 0.18em;
+        }
+        .verdict-sub {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-dim);
+            margin-top: 2px;
+        }
+        .verdict.allow { background: var(--green-dim); border-color: var(--green-border); }
+        .verdict.allow .verdict-word { color: var(--green); }
+        .verdict.deny  { background: var(--red-dim); border-color: var(--red-border); }
+        .verdict.deny  .verdict-word { color: var(--red); }
+        .verdict.idle  .verdict-word { color: var(--text-dim); font-size: 12px; letter-spacing: 0.08em; font-weight: 400; }
+        .verdict .copy-btn { position: absolute; top: 8px; right: 8px; }
+
+        /* match cards */
+        .match {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            background: var(--surface-2);
+            margin-bottom: 8px;
+            overflow: hidden;
+        }
+        .match-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border-bottom: 1px solid var(--border);
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+        }
+        .match-ref { color: var(--accent); font-weight: 600; }
+        .match-via { color: var(--text-dim); flex: 1; word-break: break-all; }
+        .match pre {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            line-height: 1.6;
+            color: var(--text-muted);
+            padding: 8px 10px;
+            overflow-x: auto;
+        }
+        .match-caveat {
+            padding: 5px 10px;
+            border-top: 1px solid var(--border);
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--amber);
+        }
+
+        .warn-line {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--amber);
+            padding: 2px 0;
+            word-break: break-all;
+        }
+
+        /* test rows */
+        .test-summary {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-muted);
+            padding: 0 0 8px;
+        }
+        .test-summary b.ok { color: var(--green); }
+        .test-summary b.bad { color: var(--red); }
+        .test-row {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            padding: 5px 0;
+            border-top: 1px solid var(--border);
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+        }
+        .test-pill {
+            flex-shrink: 0;
+            font-size: 9.5px;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            border-radius: 9px;
+            padding: 0 7px;
+        }
+        .test-pill.pass { color: var(--green); background: var(--green-dim); border: 1px solid var(--green-border); }
+        .test-pill.fail { color: var(--red);   background: var(--red-dim);   border: 1px solid var(--red-border); }
+        .test-desc { color: var(--text-muted); word-break: break-all; }
+        .test-desc .exp { color: var(--text-dim); }
+        .test-reason { color: var(--red); }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <a href="../" class="back">← hub</a>
+        <span class="sep">/</span>
+        <span class="header-title">Tailscale ACL Tester</span>
+        <span class="header-badge">NET</span>
+        <span class="header-count"><b id="rule-count">0</b> rules</span>
+    </header>
+
+    <div class="workspace">
+        <div class="input-panel">
+            <div class="panel-head">
+                <span class="panel-title">Policy (HuJSON)</span>
+                <button class="btn" onclick="loadSample()">Sample</button>
+                <button class="btn" onclick="formatPolicy()">Format</button>
+                <button class="btn" onclick="clearInput()">Clear</button>
+            </div>
+            <div class="err-bar" id="err-bar"></div>
+            <textarea id="policy" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off"
+                placeholder="Paste a Tailscale policy file (the ACL file from the admin console).
+
+HuJSON is fine: // and /* */ comments, trailing commas.
+
+Supported for evaluation: groups, hosts, tagOwners, acls, grants (ip), tests. Everything runs locally — nothing leaves the browser."></textarea>
+        </div>
+
+        <div class="results-panel">
+            <div class="panel-head">
+                <span class="panel-title">Evaluation</span>
+            </div>
+            <div class="results-body">
+
+                <div class="sec" id="sec-summary">
+                    <div class="sec-head">
+                        <span class="sec-name">Policy summary</span>
+                        <span class="sec-pill" id="summary-pill">empty</span>
+                    </div>
+                    <div class="sec-body" id="summary-body">
+                        <div class="empty-note">No policy yet — paste one on the left or hit Sample.</div>
+                    </div>
+                </div>
+
+                <div class="sec" id="sec-query">
+                    <div class="sec-head">
+                        <span class="sec-name">Query tester</span>
+                    </div>
+                    <div class="sec-body">
+                        <div class="query-grid">
+                            <div class="qfield">
+                                <label for="q-src">Src (user / tag / host / IP)</label>
+                                <input id="q-src" placeholder="alice@example.com" spellcheck="false">
+                            </div>
+                            <div class="qfield">
+                                <label for="q-dst">Dst (host / tag / IP)</label>
+                                <input id="q-dst" placeholder="prod-db" spellcheck="false">
+                            </div>
+                            <div class="qfield">
+                                <label for="q-port">Port (empty = any)</label>
+                                <input id="q-port" placeholder="443" spellcheck="false" inputmode="numeric">
+                            </div>
+                            <div class="qfield">
+                                <label for="q-proto">Protocol</label>
+                                <select id="q-proto">
+                                    <option value="any">any</option>
+                                    <option value="tcp">tcp</option>
+                                    <option value="udp">udp</option>
+                                    <option value="icmp">icmp</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="principal-note" id="principal-note"></div>
+                        <div class="verdict idle" id="verdict">
+                            <div class="verdict-word">Enter a src and dst above</div>
+                        </div>
+                        <div id="matches"></div>
+                        <div id="query-warnings"></div>
+                    </div>
+                </div>
+
+                <div class="sec" id="sec-tests">
+                    <div class="sec-head">
+                        <span class="sec-name">Policy tests</span>
+                        <span class="sec-pill" id="tests-pill">–</span>
+                    </div>
+                    <div class="sec-body" id="tests-body">
+                        <div class="empty-note">The policy's "tests" section runs automatically here.</div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ── HuJSON parsing ──────────────────────────────────────
+        // Blanks // and /* */ comments (string-aware, newline-preserving)
+        // and trailing commas, so JSON.parse positions still map to the
+        // original text for line numbers.
+        function blankComments(text) {
+            let out = '';
+            let i = 0, inStr = false;
+            while (i < text.length) {
+                const c = text[i];
+                if (inStr) {
+                    out += c;
+                    if (c === '\\') { out += text[i + 1] || ''; i += 2; continue; }
+                    if (c === '"') inStr = false;
+                    i++;
+                    continue;
+                }
+                if (c === '"') { inStr = true; out += c; i++; continue; }
+                if (c === '/' && text[i + 1] === '/') {
+                    while (i < text.length && text[i] !== '\n') { out += ' '; i++; }
+                    continue;
+                }
+                if (c === '/' && text[i + 1] === '*') {
+                    out += '  '; i += 2;
+                    while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) {
+                        out += text[i] === '\n' ? '\n' : ' ';
+                        i++;
+                    }
+                    if (i < text.length) { out += '  '; i += 2; }
+                    continue;
+                }
+                out += c;
+                i++;
+            }
+            return out;
+        }
+
+        function blankTrailingCommas(text) {
+            const chars = text.split('');
+            let inStr = false;
+            for (let i = 0; i < chars.length; i++) {
+                const c = chars[i];
+                if (inStr) {
+                    if (c === '\\') { i++; continue; }
+                    if (c === '"') inStr = false;
+                    continue;
+                }
+                if (c === '"') { inStr = true; continue; }
+                if (c === ',') {
+                    let j = i + 1;
+                    while (j < chars.length && /\s/.test(chars[j])) j++;
+                    if (j < chars.length && (chars[j] === '}' || chars[j] === ']')) chars[i] = ' ';
+                }
+            }
+            return chars.join('');
+        }
+
+        // → {value} | {error: "message"}
+        function hujsonParse(text) {
+            const cleaned = blankTrailingCommas(blankComments(text));
+            try {
+                return { value: JSON.parse(cleaned) };
+            } catch (e) {
+                let msg = String(e.message || e);
+                const m = msg.match(/position (\d+)/);
+                if (m) {
+                    const pos = +m[1];
+                    const line = cleaned.slice(0, pos).split('\n').length;
+                    msg = msg.replace(/ *\(line \d+ column \d+\)| at position \d+.*/s, '') + ' — line ' + line;
+                }
+                return { error: msg };
+            }
+        }
+
+        // ── IP math (IPv4 as uint32, IPv6 as BigInt) ────────────
+        function parseV4(s) {
+            const m = s.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+            if (!m) return null;
+            const o = m.slice(1).map(Number);
+            if (o.some(x => x > 255)) return null;
+            return (o[0] << 24 | o[1] << 16 | o[2] << 8 | o[3]) >>> 0;
+        }
+
+        // IPv6 → BigInt | null. Handles ::, full form, embedded IPv4 tail.
+        function parseV6(s) {
+            s = String(s).trim().toLowerCase();
+            if (!s || !s.includes(':') || /[^0-9a-f:.]/.test(s)) return null;
+            const dbl = s.split('::');
+            if (dbl.length > 2) return null;
+            const splitGroups = part => part === '' ? [] : part.split(':');
+            const left = splitGroups(dbl[0]);
+            const right = dbl.length === 2 ? splitGroups(dbl[1]) : [];
+            const tail = dbl.length === 2 ? right : left;
+            if (tail.length && tail[tail.length - 1].includes('.')) {
+                const v4 = parseV4(tail.pop());
+                if (v4 === null) return null;
+                tail.push((v4 >>> 16).toString(16), (v4 & 0xffff).toString(16));
+            }
+            let groups;
+            if (dbl.length === 2) {
+                const fill = 8 - left.length - right.length;
+                if (fill < 1) return null;
+                groups = [...left, ...Array(fill).fill('0'), ...right];
+            } else {
+                groups = left;
+            }
+            if (groups.length !== 8) return null;
+            let val = 0n;
+            for (const gp of groups) {
+                if (!/^[0-9a-f]{1,4}$/.test(gp)) return null;
+                val = (val << 16n) | BigInt(parseInt(gp, 16));
+            }
+            return val;
+        }
+
+        // "addr" or "addr/nn" → {fam, addr, prefix} | null. Bare = /32 or /128.
+        function parseCIDRany(s) {
+            s = String(s).trim();
+            if (!s) return null;
+            let addrPart = s, prefix = null;
+            const slash = s.indexOf('/');
+            if (slash !== -1) {
+                addrPart = s.slice(0, slash);
+                if (!/^\d{1,3}$/.test(s.slice(slash + 1))) return null;
+                prefix = +s.slice(slash + 1);
+            }
+            const v4 = parseV4(addrPart);
+            if (v4 !== null) {
+                if (prefix === null) prefix = 32;
+                if (prefix > 32) return null;
+                return { fam: 4, addr: v4, prefix };
+            }
+            const v6 = parseV6(addrPart);
+            if (v6 !== null) {
+                if (prefix === null) prefix = 128;
+                if (prefix > 128) return null;
+                return { fam: 6, addr: v6, prefix };
+            }
+            return null;
+        }
+
+        function netOf(c, prefix) {
+            if (c.fam === 4) {
+                const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+                return (c.addr & mask) >>> 0;
+            }
+            const p = BigInt(prefix);
+            const mask = p === 0n ? 0n : (((1n << p) - 1n) << (128n - p));
+            return c.addr & mask;
+        }
+
+        function cidrContainsCidr(outer, inner) {
+            if (outer.fam !== inner.fam || outer.prefix > inner.prefix) return false;
+            return netOf(inner, outer.prefix) === netOf(outer, outer.prefix);
+        }
+
+        const NON_INTERNET = [
+            '0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8',
+            '169.254.0.0/16', '172.16.0.0/12', '192.168.0.0/16',
+            '224.0.0.0/4', '240.0.0.0/4',
+            '::1/128', 'fc00::/7', 'fe80::/10', 'ff00::/8',
+        ].map(parseCIDRany);
+
+        function isPublicCIDR(c) {
+            return !NON_INTERNET.some(n => cidrContainsCidr(n, c) || cidrContainsCidr(c, n));
+        }
+
+        // ── Ports & protocols ───────────────────────────────────
+        const PROTO_NUM = { 1: 'icmp', 2: 'igmp', 6: 'tcp', 17: 'udp', 46: 'rsvp', 47: 'gre', 50: 'esp', 51: 'ah', 58: 'icmp', 132: 'sctp' };
+
+        function protoNorm(p) {
+            if (p === null || p === undefined || p === '') return null;
+            const s = String(p).trim().toLowerCase();
+            if (/^\d+$/.test(s)) return PROTO_NUM[+s] || ('proto-' + s);
+            if (s === 'icmpv6' || s === 'icmp6') return 'icmp';
+            return s;
+        }
+
+        // ruleProto may be a name, IANA number, or comma list; null = all.
+        function protoMatches(ruleProto, queryProto) {
+            if (ruleProto === null || ruleProto === undefined || ruleProto === '') return true;
+            if (queryProto === 'any') return true;
+            return String(ruleProto).split(',').some(p => protoNorm(p) === queryProto);
+        }
+
+        // spec: "*", "443", "80-90", "80,443,9100-9110". port null = any.
+        function matchPortSpec(spec, port, ctx) {
+            spec = String(spec).trim();
+            if (spec === '*') return true;
+            if (port === null) return true; // "any port" query: every spec allows something
+            for (const item of spec.split(',')) {
+                const t = item.trim();
+                if (/^\d+$/.test(t)) {
+                    if (+t === port) return true;
+                } else {
+                    const m = t.match(/^(\d+)-(\d+)$/);
+                    if (!m) { if (ctx) ctx.warnings.add('unparseable port spec "' + spec + '"'); continue; }
+                    if (+m[1] > +m[2]) { if (ctx) ctx.warnings.add('reversed port range "' + t + '"'); continue; }
+                    if (port >= +m[1] && port <= +m[2]) return true;
+                }
+            }
+            return false;
+        }
+
+        // Split "target:portspec" at the LAST colon (IPv6-safe: acl dsts
+        // always carry a port, so the last colon is the separator).
+        function splitDst(s) {
+            const idx = s.lastIndexOf(':');
+            if (idx === -1) return { target: s, portSpec: null };
+            const tail = s.slice(idx + 1);
+            if (!/^(\*|\d[\d,\-]*)$/.test(tail)) return { target: s, portSpec: null };
+            return { target: s.slice(0, idx), portSpec: tail };
+        }
+
+        // grants "ip" entry: "tcp:443", "udp:41641", "80-90", "*", "6:53"
+        function parseIpCap(cap) {
+            const s = String(cap).trim();
+            const idx = s.indexOf(':');
+            if (idx === -1) return { proto: null, spec: s };
+            return { proto: s.slice(0, idx), spec: s.slice(idx + 1) };
+        }
+
+        // ── Principals & selectors ──────────────────────────────
+        // A "principal" is the classified query src or dst.
+        function classifyPrincipal(raw, policy) {
+            const s = String(raw || '').trim();
+            if (!s) return null;
+            if (s.startsWith('group:')) return { kind: 'group', value: s };
+            if (s.startsWith('tag:')) return { kind: 'tag', value: s };
+            if (s.startsWith('autogroup:')) return { kind: 'autogroup', value: s };
+            if (s.includes('@')) return { kind: 'user', value: s.toLowerCase() };
+            if (policy && policy.hosts && Object.prototype.hasOwnProperty.call(policy.hosts, s)) {
+                return { kind: 'host', value: s, cidr: parseCIDRany(String(policy.hosts[s])) };
+            }
+            const cidr = parseCIDRany(s);
+            if (cidr) return { kind: 'ip', value: s, cidr };
+            return { kind: 'unknown', value: s };
+        }
+
+        // Recursive group expansion with cycle guard.
+        // → {users: Set<email>, groups: Set<nested group names>}
+        function expandGroup(name, policy, ctx, seen) {
+            seen = seen || new Set();
+            const out = { users: new Set(), groups: new Set() };
+            if (seen.has(name)) return out;
+            seen.add(name);
+            const def = (policy.groups || {})[name];
+            if (!def) {
+                if (ctx) ctx.warnings.add('group "' + name + '" is not defined in "groups"');
+                return out;
+            }
+            for (const m of def) {
+                const s = String(m).trim();
+                if (s.startsWith('group:')) {
+                    out.groups.add(s);
+                    const sub = expandGroup(s, policy, ctx, seen);
+                    sub.users.forEach(u => out.users.add(u));
+                    sub.groups.forEach(g => out.groups.add(g));
+                } else {
+                    out.users.add(s.toLowerCase());
+                }
+            }
+            return out;
+        }
+
+        // How does a CIDR selector relate to the principal?
+        // full containment → true, partial overlap → 'maybe', else false
+        function cidrRelation(selCidr, p, ctx) {
+            if (!p.cidr) return false;
+            if (cidrContainsCidr(selCidr, p.cidr)) return true;
+            if (cidrContainsCidr(p.cidr, selCidr)) {
+                if (ctx) ctx.warnings.add('"' + p.value + '" only partially overlaps selector — some addresses match');
+                return 'maybe';
+            }
+            return false;
+        }
+
+        const ROLE_AUTOGROUPS = ['autogroup:admin', 'autogroup:owner', 'autogroup:billing-admin',
+            'autogroup:it-admin', 'autogroup:network-admin', 'autogroup:auditor', 'autogroup:shared'];
+
+        // → true | 'maybe' | false. Never throws; unknowns warn via ctx.
+        function selectorMatches(selRaw, p, policy, ctx, opts) {
+            opts = opts || {};
+            const sel = String(selRaw).trim();
+            if (sel === '*') return true;
+            if (sel.includes('@') && !sel.includes(':')) {
+                return p.kind === 'user' && p.value === sel.toLowerCase();
+            }
+            if (sel.startsWith('group:')) {
+                const g = expandGroup(sel, policy, ctx);
+                if (p.kind === 'user') return g.users.has(p.value);
+                if (p.kind === 'group') return p.value === sel || g.groups.has(p.value);
+                return false;
+            }
+            if (sel.startsWith('tag:')) {
+                if (!(policy.tagOwners || {})[sel] && ctx)
+                    ctx.warnings.add('tag "' + sel + '" has no entry in "tagOwners"');
+                return p.kind === 'tag' && p.value === sel;
+            }
+            if (sel.startsWith('autogroup:')) {
+                if (p.kind === 'autogroup' && p.value === sel) return true;
+                switch (sel) {
+                    case 'autogroup:member':
+                    case 'autogroup:members':
+                        return p.kind === 'user' || p.kind === 'group';
+                    case 'autogroup:tagged':
+                        return p.kind === 'tag';
+                    case 'autogroup:danger-all':
+                        return true;
+                    case 'autogroup:self': {
+                        if (!opts.isDst) {
+                            if (ctx) ctx.warnings.add('autogroup:self is only valid as a dst — no match');
+                            return false;
+                        }
+                        const src = opts.srcP;
+                        if (p.kind === 'user' && src && src.kind === 'user') return p.value === src.value;
+                        if (ctx) ctx.warnings.add('autogroup:self: same-user device ownership can\'t be verified offline — counted as possible match');
+                        return 'maybe';
+                    }
+                    case 'autogroup:internet':
+                        return !!(p.cidr && isPublicCIDR(p.cidr));
+                    default:
+                        if (ROLE_AUTOGROUPS.includes(sel)) {
+                            if (p.kind === 'user') {
+                                if (ctx) ctx.warnings.add(sel + ': role/share membership can\'t be verified offline — counted as possible match');
+                                return 'maybe';
+                            }
+                            return false;
+                        }
+                        if (ctx) ctx.warnings.add('unsupported selector "' + sel + '" — treated as no match');
+                        return false;
+                }
+            }
+            if (policy.hosts && Object.prototype.hasOwnProperty.call(policy.hosts, sel)) {
+                if (p.kind === 'host' && p.value === sel) return true;
+                const hc = parseCIDRany(String(policy.hosts[sel]));
+                if (!hc) {
+                    if (ctx) ctx.warnings.add('host "' + sel + '" has an unparseable value "' + policy.hosts[sel] + '"');
+                    return false;
+                }
+                return cidrRelation(hc, p, ctx);
+            }
+            const selCidr = parseCIDRany(sel);
+            if (selCidr) return cidrRelation(selCidr, p, ctx);
+            if (ctx) ctx.warnings.add('unsupported selector "' + sel + '" (not a user/group/tag/host/IP) — treated as no match');
+            return false;
+        }
+
+        // Best match across a selector list: true beats 'maybe' beats false.
+        function bestMatch(selectors, p, policy, ctx, opts) {
+            let best = false;
+            for (const sel of selectors || []) {
+                const r = selectorMatches(sel, p, policy, ctx, opts);
+                if (r === true) return true;
+                if (r === 'maybe') best = 'maybe';
+            }
+            return best;
+        }
+
+        // ── Evaluation ──────────────────────────────────────────
+        // q: {src, dst, port: int|null, proto: 'any'|'tcp'|'udp'|'icmp'}
+        // → {verdict: 'allow'|'deny'|'idle', matches[], warnings, srcP, dstP}
+        function evaluate(policy, q) {
+            const ctx = { warnings: new Set() };
+            const srcP = classifyPrincipal(q.src, policy);
+            const dstP = classifyPrincipal(q.dst, policy);
+            const res = { matches: [], warnings: ctx.warnings, srcP, dstP };
+            if (!srcP || !dstP) { res.verdict = 'idle'; return res; }
+            if (srcP.kind === 'unknown') ctx.warnings.add('src "' + srcP.value + '" is not a user, tag, host, or IP — nothing will match it');
+            if (dstP.kind === 'unknown') ctx.warnings.add('dst "' + dstP.value + '" is not a tag, host, or IP — nothing will match it');
+
+            (Array.isArray(policy.acls) ? policy.acls : []).forEach((rule, i) => {
+                if (!rule || typeof rule !== 'object') return;
+                if ((rule.action || 'accept') !== 'accept') {
+                    ctx.warnings.add('acls[' + i + ']: action "' + rule.action + '" is not valid Tailscale (only "accept" exists) — skipped');
+                    return;
+                }
+                if (!protoMatches(rule.proto, q.proto)) return;
+                const sm = bestMatch(rule.src, srcP, policy, ctx, {});
+                if (!sm) return;
+                for (const d of (Array.isArray(rule.dst) ? rule.dst : [])) {
+                    const { target, portSpec } = splitDst(String(d));
+                    if (portSpec === null) {
+                        ctx.warnings.add('acls[' + i + ']: dst "' + d + '" has no port — skipped');
+                        continue;
+                    }
+                    const tm = selectorMatches(target, dstP, policy, ctx, { isDst: true, srcP });
+                    if (!tm) continue;
+                    if (!matchPortSpec(portSpec, q.port, ctx)) continue;
+                    res.matches.push({ kind: 'acls', index: i, rule, dstEntry: String(d), caveat: sm === 'maybe' || tm === 'maybe' });
+                    break;
+                }
+            });
+
+            (Array.isArray(policy.grants) ? policy.grants : []).forEach((rule, i) => {
+                if (!rule || typeof rule !== 'object') return;
+                if (rule.app && !rule.ip) {
+                    ctx.warnings.add('grants[' + i + ']: app-only grant — not network traffic, skipped');
+                    return;
+                }
+                if (!protoMatches(rule.proto, q.proto)) return; // rarely present; harmless
+                const caps = Array.isArray(rule.ip) && rule.ip.length
+                    ? rule.ip.map(parseIpCap)
+                    : [{ proto: null, spec: '*' }];
+                const sm = bestMatch(rule.src, srcP, policy, ctx, {});
+                if (!sm) return;
+                for (const d of (Array.isArray(rule.dst) ? rule.dst : [])) {
+                    const tm = selectorMatches(String(d), dstP, policy, ctx, { isDst: true, srcP });
+                    if (!tm) continue;
+                    const cap = caps.find(c => protoMatches(c.proto, q.proto) && matchPortSpec(c.spec, q.port, ctx));
+                    if (!cap) continue;
+                    res.matches.push({ kind: 'grants', index: i, rule, dstEntry: String(d), caveat: sm === 'maybe' || tm === 'maybe' });
+                    break;
+                }
+            });
+
+            res.verdict = res.matches.length ? 'allow' : 'deny';
+            return res;
+        }
+
+        // ── Policy tests ────────────────────────────────────────
+        // Assertion dst "target:port" → concrete query port
+        function assertionPort(portSpec) {
+            if (portSpec === '*') return null;
+            const first = portSpec.split(',')[0].trim();
+            const m = first.match(/^(\d+)/);
+            return m ? +m[1] : null;
+        }
+
+        // → {rows: [{pass, test, dst, expect, reason}], pass, fail, notes}
+        function runTests(policy) {
+            const rows = [];
+            const notes = new Set();
+            (Array.isArray(policy.tests) ? policy.tests : []).forEach((t, ti) => {
+                if (!t || typeof t !== 'object') return;
+                if (t.srcPostureAttrs) notes.add('tests[' + ti + ']: srcPostureAttrs ignored (posture checks unsupported)');
+                const proto = t.proto ? (protoNorm(t.proto) || 'any') : 'any';
+                for (const key of ['accept', 'deny']) {
+                    for (const a of (Array.isArray(t[key]) ? t[key] : [])) {
+                        const { target, portSpec } = splitDst(String(a));
+                        const q = {
+                            src: String(t.src || ''),
+                            dst: target,
+                            port: portSpec === null ? null : assertionPort(portSpec),
+                            proto,
+                        };
+                        const r = evaluate(policy, q);
+                        const expectAllow = key === 'accept';
+                        const gotAllow = r.verdict === 'allow';
+                        let reason = '';
+                        if (gotAllow !== expectAllow) {
+                            reason = gotAllow
+                                ? 'got ALLOW via ' + r.matches.map(m => m.kind + '[' + m.index + ']').join(', ')
+                                : 'got DENY — no rule matched';
+                        }
+                        rows.push({ pass: gotAllow === expectAllow, ti, src: q.src, dst: String(a), expect: key, reason });
+                    }
+                }
+            });
+            return {
+                rows,
+                pass: rows.filter(r => r.pass).length,
+                fail: rows.filter(r => !r.pass).length,
+                notes,
+            };
+        }
+
+        // ── Summary ─────────────────────────────────────────────
+        const KNOWN_SECTIONS = ['groups', 'hosts', 'tagOwners', 'acls', 'grants', 'tests'];
+
+        function summarize(policy) {
+            const count = k => {
+                const v = policy[k];
+                if (Array.isArray(v)) return v.length;
+                if (v && typeof v === 'object') return Object.keys(v).length;
+                return 0;
+            };
+            return {
+                groups: count('groups'),
+                hosts: count('hosts'),
+                tags: count('tagOwners'),
+                acls: count('acls'),
+                grants: count('grants'),
+                tests: count('tests'),
+                ignored: Object.keys(policy).filter(k => !KNOWN_SECTIONS.includes(k)),
+            };
+        }
+
+        // ── Rendering ───────────────────────────────────────────
+        const g = id => document.getElementById(id);
+        const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+        let lastGoodPolicy = null;
+        let lastVerdictText = '';
+
+        function describePrincipal(p) {
+            if (!p) return '';
+            if (p.kind === 'unknown') return '<span class="unk">unrecognized: ' + esc(p.value) + '</span>';
+            let extra = '';
+            if (p.kind === 'host') extra = p.cidr ? ' = ' + esc(String(lastGoodPolicy.hosts[p.value])) : ' (unparseable value)';
+            return esc(p.kind) + ' <b>' + esc(p.value) + '</b>' + extra;
+        }
+
+        function renderSummary(policy) {
+            const pill = g('summary-pill'), body = g('summary-body');
+            if (!policy) {
+                pill.textContent = 'empty';
+                pill.className = 'sec-pill';
+                body.innerHTML = '<div class="empty-note">No policy yet — paste one on the left or hit Sample.</div>';
+                g('rule-count').textContent = '0';
+                return;
+            }
+            const s = summarize(policy);
+            g('rule-count').textContent = s.acls + s.grants;
+            pill.textContent = 'parsed';
+            pill.className = 'sec-pill ok';
+            body.innerHTML =
+                '<div class="chips">' +
+                [['groups', s.groups], ['hosts', s.hosts], ['tags', s.tags], ['acls', s.acls], ['grants', s.grants], ['tests', s.tests]]
+                    .map(([k, v]) => '<span class="chip">' + k + ' <b>' + v + '</b></span>').join('') +
+                '</div>' +
+                (s.ignored.length
+                    ? '<div class="ignored-note">ignored sections: ' + s.ignored.map(esc).join(', ') + '</div>'
+                    : '');
+        }
+
+        function renderQuery(policy) {
+            const verdictEl = g('verdict'), matchesEl = g('matches'), warnEl = g('query-warnings'), noteEl = g('principal-note');
+            const src = g('q-src').value.trim();
+            const dst = g('q-dst').value.trim();
+            const portRaw = g('q-port').value.trim();
+            const proto = g('q-proto').value;
+
+            let port = null;
+            let portInvalid = false;
+            if (portRaw !== '' && portRaw !== '*') {
+                port = +portRaw;
+                portInvalid = !/^\d+$/.test(portRaw) || port < 1 || port > 65535;
+            }
+            g('q-port').classList.toggle('invalid', portInvalid);
+
+            if (!policy || !src || !dst || portInvalid) {
+                verdictEl.className = 'verdict idle';
+                verdictEl.innerHTML = '<div class="verdict-word">' + (
+                    !policy ? 'Paste a policy to evaluate against' :
+                    portInvalid ? 'Port must be 1–65535' :
+                    'Enter a src and dst above') + '</div>';
+                matchesEl.innerHTML = '';
+                warnEl.innerHTML = '';
+                noteEl.innerHTML = '';
+                lastVerdictText = '';
+                return;
+            }
+
+            const r = evaluate(policy, { src, dst, port, proto });
+            noteEl.innerHTML = 'src → ' + describePrincipal(r.srcP) + '<br>dst → ' + describePrincipal(r.dstP);
+
+            const qDesc = esc(src) + ' → ' + esc(dst) + (port !== null ? ':' + port : '') + (proto !== 'any' ? ' (' + proto + ')' : '');
+            const caveats = r.matches.some(m => m.caveat);
+            if (r.verdict === 'allow') {
+                verdictEl.className = 'verdict allow';
+                verdictEl.innerHTML =
+                    '<button class="btn copy-btn" onclick="copyVerdict(this)">Copy</button>' +
+                    '<div class="verdict-word">ALLOW' + (caveats ? '?' : '') + '</div>' +
+                    '<div class="verdict-sub">' + qDesc + ' · ' + r.matches.length + ' matching rule' + (r.matches.length > 1 ? 's' : '') + '</div>';
+                lastVerdictText = 'ALLOW ' + src + ' -> ' + dst + (port !== null ? ':' + port : '') + '/' + proto +
+                    ' via ' + r.matches.map(m => m.kind + '[' + m.index + ']').join(', ');
+            } else {
+                verdictEl.className = 'verdict deny';
+                verdictEl.innerHTML =
+                    '<button class="btn copy-btn" onclick="copyVerdict(this)">Copy</button>' +
+                    '<div class="verdict-word">DENY</div>' +
+                    '<div class="verdict-sub">' + qDesc + ' · no rule matched (Tailscale is default-deny)</div>';
+                lastVerdictText = 'DENY ' + src + ' -> ' + dst + (port !== null ? ':' + port : '') + '/' + proto + ' (no rule matched)';
+            }
+
+            matchesEl.innerHTML = r.matches.map(m =>
+                '<div class="match">' +
+                    '<div class="match-head">' +
+                        '<span class="match-ref">' + m.kind + '[' + m.index + ']</span>' +
+                        '<span class="match-via">dst entry: ' + esc(m.dstEntry) + '</span>' +
+                    '</div>' +
+                    '<pre>' + esc(JSON.stringify(m.rule, null, 2)) + '</pre>' +
+                    (m.caveat ? '<div class="match-caveat">⚠ match relies on state this offline tester can\'t verify — see warnings</div>' : '') +
+                '</div>').join('');
+
+            warnEl.innerHTML = [...r.warnings].map(w => '<div class="warn-line">⚠ ' + esc(w) + '</div>').join('');
+        }
+
+        function renderTests(policy) {
+            const pill = g('tests-pill'), body = g('tests-body');
+            if (!policy || !Array.isArray(policy.tests) || !policy.tests.length) {
+                pill.textContent = '–';
+                pill.className = 'sec-pill';
+                body.innerHTML = '<div class="empty-note">' +
+                    (policy ? 'This policy has no "tests" section.' : 'The policy\'s "tests" section runs automatically here.') +
+                    '</div>';
+                return;
+            }
+            const t = runTests(policy);
+            pill.textContent = t.pass + '/' + t.rows.length + ' pass';
+            pill.className = 'sec-pill ' + (t.fail ? 'bad' : 'ok');
+            body.innerHTML =
+                '<div class="test-summary"><b class="' + (t.fail ? 'bad' : 'ok') + '">' +
+                    (t.fail ? t.fail + ' failing' : 'all passing') + '</b> · ' +
+                    t.rows.length + ' assertions from ' + policy.tests.length + ' tests</div>' +
+                t.rows.map(r =>
+                    '<div class="test-row">' +
+                        '<span class="test-pill ' + (r.pass ? 'pass' : 'fail') + '">' + (r.pass ? 'PASS' : 'FAIL') + '</span>' +
+                        '<span class="test-desc">#' + (r.ti + 1) + ' ' + esc(r.src) + ' → ' + esc(r.dst) +
+                            ' <span class="exp">expect ' + (r.expect === 'accept' ? 'allow' : 'deny') + '</span>' +
+                            (r.reason ? ' · <span class="test-reason">' + esc(r.reason) + '</span>' : '') +
+                        '</span>' +
+                    '</div>').join('') +
+                [...t.notes].map(n => '<div class="warn-line">⚠ ' + esc(n) + '</div>').join('');
+        }
+
+        function showError(msg) {
+            const bar = g('err-bar');
+            if (!msg) { bar.classList.remove('show'); bar.textContent = ''; return; }
+            bar.textContent = msg;
+            bar.classList.add('show');
+        }
+
+        // ── Wiring ──────────────────────────────────────────────
+        function run() {
+            const text = g('policy').value;
+            if (!text.trim()) {
+                lastGoodPolicy = null;
+                showError('');
+            } else {
+                const r = hujsonParse(text);
+                if (r.error) {
+                    showError('parse error: ' + r.error);
+                    // keep last good policy rendered
+                } else if (!r.value || typeof r.value !== 'object' || Array.isArray(r.value)) {
+                    showError('policy must be a JSON object');
+                } else {
+                    lastGoodPolicy = r.value;
+                    showError('');
+                }
+            }
+            renderSummary(lastGoodPolicy);
+            renderQuery(lastGoodPolicy);
+            renderTests(lastGoodPolicy);
+        }
+
+        let timer = null;
+        function queueRun() {
+            clearTimeout(timer);
+            timer = setTimeout(run, 300);
+        }
+        g('policy').addEventListener('input', queueRun);
+        ['q-src', 'q-dst', 'q-port'].forEach(id => g(id).addEventListener('input', queueRun));
+        g('q-proto').addEventListener('change', run);
+
+        function flash(btn, label) {
+            const old = btn.textContent;
+            btn.textContent = label;
+            btn.classList.add('flash');
+            setTimeout(() => { btn.textContent = old; btn.classList.remove('flash'); }, 1500);
+        }
+
+        function copyVerdict(btn) {
+            if (!lastVerdictText) return;
+            navigator.clipboard.writeText(lastVerdictText).then(() => flash(btn, 'Copied!'));
+        }
+
+        function formatPolicy() {
+            const r = hujsonParse(g('policy').value);
+            if (r.error || !r.value) { showError(r.error ? 'parse error: ' + r.error : ''); return; }
+            g('policy').value = JSON.stringify(r.value, null, 2);
+            run();
+        }
+
+        function clearInput() {
+            g('policy').value = '';
+            run();
+        }
+
+        const SAMPLE = `// Example tailnet policy — HuJSON: comments and trailing commas are fine
+{
+  "groups": {
+    "group:eng": ["alice@example.com", "bob@example.com"],
+    "group:ops": ["carol@example.com", "group:eng"], // nested group
+  },
+
+  "hosts": {
+    "prod-db":  "10.0.0.20",
+    "corp-net": "192.168.0.0/16",
+  },
+
+  "tagOwners": {
+    "tag:server": ["group:ops"],
+    "tag:ci":     ["carol@example.com"],
+  },
+
+  "acls": [
+    /* eng → prod-db: postgres + node-exporter range */
+    { "action": "accept", "src": ["group:eng"], "dst": ["prod-db:5432,9100-9110"] },
+    { "action": "accept", "src": ["autogroup:member"], "proto": "tcp", "dst": ["tag:server:80,443"] },
+    { "action": "accept", "src": ["tag:ci"], "dst": ["corp-net:*"] },
+  ],
+
+  "grants": [
+    // new syntax: ops get ssh + tailscale wireguard udp to servers
+    { "src": ["group:ops"], "dst": ["tag:server"], "ip": ["tcp:22", "udp:41641"] },
+  ],
+
+  "tests": [
+    { "src": "alice@example.com", "accept": ["prod-db:5432", "tag:server:443"], "deny": ["prod-db:22"] },
+    { "src": "carol@example.com", "proto": "tcp", "accept": ["tag:server:22"] },
+    { "src": "tag:ci", "accept": ["192.168.5.9:8080"], "deny": ["prod-db:5432"] },
+  ],
+}
+`;
+
+        function loadSample() {
+            g('policy').value = SAMPLE;
+            g('q-src').value = 'alice@example.com';
+            g('q-dst').value = 'prod-db';
+            g('q-port').value = '5432';
+            g('q-proto').value = 'tcp';
+            run();
+        }
+
+        run();
+    </script>
+</body>
+</html>
