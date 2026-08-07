@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UFW Rule Builder</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0d0f14;
+            --surface: #14171f;
+            --surface-2: #1c2030;
+            --surface-3: #252a3d;
+            --border: rgba(255, 255, 255, 0.07);
+            --border-strong: rgba(255, 255, 255, 0.14);
+            --text: #e8eaf0;
+            --text-muted: #9298a8;
+            --text-dim: #5c6275;
+            --accent: #4fd1c5;
+            --accent-dim: rgba(79, 209, 197, 0.12);
+            --accent-border: rgba(79, 209, 197, 0.30);
+            --amber: #f6ad55;
+            --amber-dim: rgba(246, 173, 85, 0.12);
+            --amber-border: rgba(246, 173, 85, 0.30);
+            --red: #ef6b6b;
+            --red-dim: rgba(239, 107, 107, 0.12);
+            --red-border: rgba(239, 107, 107, 0.30);
+            --purple: #b794f6;
+            --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+            --radius-sm: 4px;
+            --radius-md: 6px;
+            --radius-lg: 10px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 14px;
+            line-height: 1.55;
+            min-height: 100vh;
+        }
+
+        .header {
+            border-bottom: 1px solid var(--border);
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--surface);
+        }
+        .back {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            text-decoration: none;
+            letter-spacing: 0.05em;
+            transition: color 0.15s;
+        }
+        .back:hover { color: var(--accent); }
+        .sep { color: var(--text-dim); }
+        .header-title { font-size: 14px; font-weight: 600; color: var(--text); }
+        .header-note {
+            margin-left: auto;
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            color: var(--text-dim);
+            letter-spacing: 0.04em;
+        }
+
+        .page {
+            max-width: 780px;
+            margin: 0 auto;
+            padding: 24px 20px 64px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 4px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 4px;
+            width: fit-content;
+        }
+        .tab-btn {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            letter-spacing: 0.04em;
+            color: var(--text-muted);
+            background: none;
+            border: 1px solid transparent;
+            border-radius: var(--radius-sm);
+            padding: 6px 18px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .tab-btn:hover { color: var(--text); }
+        .tab-btn.active {
+            color: var(--accent);
+            background: var(--accent-dim);
+            border-color: var(--accent-border);
+        }
+
+        .card {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--surface);
+            padding: 18px;
+        }
+        .card-label {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            margin-bottom: 12px;
+        }
+
+        .field-row {
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+            margin-bottom: 14px;
+        }
+        .field-row:last-child { margin-bottom: 0; }
+        .field { display: flex; flex-direction: column; gap: 5px; }
+        .field.grow { flex: 1; min-width: 160px; }
+        .field-label {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            letter-spacing: 0.06em;
+            color: var(--text-muted);
+        }
+
+        input[type="text"], select {
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 12.5px;
+            padding: 7px 10px;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        input[type="text"]:focus, select:focus { border-color: var(--accent-border); }
+        input.invalid { border-color: var(--red-border); background: var(--red-dim); }
+        input::placeholder { color: var(--text-dim); }
+
+        .seg {
+            display: flex;
+            gap: 0;
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+            width: fit-content;
+        }
+        .seg button {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: var(--text-muted);
+            background: var(--surface-2);
+            border: none;
+            border-right: 1px solid var(--border);
+            padding: 7px 14px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .seg button:last-child { border-right: none; }
+        .seg button:hover { color: var(--text); }
+        .seg button.active { color: var(--bg); font-weight: 600; }
+        .seg button.active[data-val="allow"] { background: var(--accent); }
+        .seg button.active[data-val="deny"] { background: var(--red); }
+        .seg button.active[data-val="reject"] { background: var(--amber); }
+        .seg button.active[data-val="limit"] { background: var(--purple); }
+        .seg button.active[data-val="in"], .seg button.active[data-val="out"],
+        .seg button.active[data-val=""], .seg button.active[data-val="tcp"], .seg button.active[data-val="udp"] { background: var(--accent); }
+
+        .toggle-row { display: flex; align-items: center; gap: 8px; }
+        .toggle-row label {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: var(--text-muted);
+            cursor: pointer;
+            user-select: none;
+        }
+        input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
+
+        .errors { display: flex; flex-direction: column; gap: 6px; }
+        .errors:empty { display: none; }
+        .error-item {
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            color: var(--red);
+            background: var(--red-dim);
+            border: 1px solid var(--red-border);
+            border-radius: var(--radius-sm);
+            padding: 6px 10px;
+        }
+        .warn-item {
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            color: var(--amber);
+            background: var(--amber-dim);
+            border: 1px solid var(--amber-border);
+            border-radius: var(--radius-sm);
+            padding: 6px 10px;
+        }
+
+        .cmd-output {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-md);
+            padding: 12px 14px;
+        }
+        .cmd-output.disabled { opacity: 0.4; }
+        .cmd-text {
+            font-family: var(--font-mono);
+            font-size: 13px;
+            color: var(--accent);
+            flex: 1;
+            word-break: break-all;
+        }
+        .copy-btn {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-muted);
+            background: var(--surface-3);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            padding: 5px 12px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.15s;
+        }
+        .copy-btn:hover { color: var(--accent); border-color: var(--accent-border); }
+        .copy-btn.copied { color: var(--accent); border-color: var(--accent-border); background: var(--accent-dim); }
+
+        .summary { font-size: 13px; color: var(--text-muted); margin-top: 10px; }
+        .summary strong { color: var(--text); font-weight: 500; }
+        .ipv6-note {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 6px;
+        }
+        .ipv6-note .badge {
+            color: var(--purple);
+            background: rgba(183, 148, 246, 0.12);
+            border: 1px solid rgba(183, 148, 246, 0.3);
+            border-radius: var(--radius-sm);
+            padding: 1px 6px;
+            margin-right: 6px;
+        }
+
+        .add-btn, .action-btn {
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            color: var(--text-muted);
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm);
+            padding: 6px 14px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .add-btn:hover, .action-btn:hover { color: var(--accent); border-color: var(--accent-border); }
+        .add-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .rule-list { display: flex; flex-direction: column; gap: 6px; }
+        .rule-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 6px 10px;
+        }
+        .rule-row .cmd { font-family: var(--font-mono); font-size: 12px; color: var(--text); flex: 1; word-break: break-all; }
+        .rule-row button {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 2px 7px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .rule-row button:hover { color: var(--accent); border-color: var(--accent-border); }
+        .rule-row button.rm:hover { color: var(--red); border-color: var(--red-border); }
+
+        textarea {
+            width: 100%;
+            min-height: 160px;
+            background: var(--surface-2);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-md);
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 12.5px;
+            line-height: 1.6;
+            padding: 12px 14px;
+            outline: none;
+            resize: vertical;
+        }
+        textarea:focus { border-color: var(--accent-border); }
+        textarea::placeholder { color: var(--text-dim); }
+
+        .explain-cards { display: flex; flex-direction: column; gap: 10px; }
+        .rule-card {
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--accent);
+            border-radius: var(--radius-md);
+            background: var(--surface-2);
+            padding: 12px 14px;
+        }
+        .rule-card.deny { border-left-color: var(--red); }
+        .rule-card.reject { border-left-color: var(--amber); }
+        .rule-card.limit { border-left-color: var(--purple); }
+        .rule-card.warn { border-left-color: var(--amber); }
+        .rule-card .src-line {
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            color: var(--text-dim);
+            margin-bottom: 8px;
+            word-break: break-all;
+        }
+        .rule-card .sentence { font-size: 13px; color: var(--text); }
+        .rule-card .warn-text { font-size: 12.5px; color: var(--amber); }
+        .rule-card .detail-grid {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 2px 14px;
+            margin-top: 8px;
+            font-size: 12px;
+        }
+        .rule-card .detail-grid dt {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            letter-spacing: 0.05em;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            padding-top: 1px;
+        }
+        .rule-card .detail-grid dd { color: var(--text-muted); font-family: var(--font-mono); font-size: 11.5px; }
+        .rule-card .action-badge {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            border-radius: var(--radius-sm);
+            padding: 1px 7px;
+            margin-right: 8px;
+        }
+        .rule-card .action-badge.allow { color: var(--accent); background: var(--accent-dim); border: 1px solid var(--accent-border); }
+        .rule-card .action-badge.deny { color: var(--red); background: var(--red-dim); border: 1px solid var(--red-border); }
+        .rule-card .action-badge.reject { color: var(--amber); background: var(--amber-dim); border: 1px solid var(--amber-border); }
+        .rule-card .action-badge.limit { color: var(--purple); background: rgba(183,148,246,0.12); border: 1px solid rgba(183,148,246,0.3); }
+
+        .hidden { display: none !important; }
+
+        @media (max-width: 560px) {
+            .field-row { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="../" class="back">&larr; TOOLS</a>
+        <span class="sep">/</span>
+        <span class="header-title">UFW Rule Builder</span>
+        <span class="header-note">ufw &middot; firewall &middot; client-side</span>
+    </div>
+
+    <div class="page">
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="build">BUILD</button>
+            <button class="tab-btn" data-tab="explain">EXPLAIN</button>
+        </div>
+
+        <!-- ============ BUILD TAB ============ -->
+        <div id="tab-build" style="display:flex; flex-direction:column; gap:16px">
+            <div class="card">
+                <div class="card-label">Rule</div>
+
+                <div class="field-row">
+                    <div class="field">
+                        <span class="field-label">ACTION</span>
+                        <div class="seg" id="action-seg">
+                            <button data-val="allow" class="active">allow</button>
+                            <button data-val="deny">deny</button>
+                            <button data-val="reject">reject</button>
+                            <button data-val="limit">limit</button>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <span class="field-label">DIRECTION</span>
+                        <div class="seg" id="dir-seg">
+                            <button data-val="in" class="active">in</button>
+                            <button data-val="out">out</button>
+                        </div>
+                    </div>
+                    <div class="field" style="justify-content:flex-end">
+                        <div class="toggle-row">
+                            <input type="checkbox" id="delete-toggle">
+                            <label for="delete-toggle">delete rule</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="field-row">
+                    <div class="field grow">
+                        <span class="field-label">SERVICE PRESET</span>
+                        <select id="preset">
+                            <option value="">— custom —</option>
+                        </select>
+                    </div>
+                    <div class="field grow">
+                        <span class="field-label">INTERFACE <span style="color:var(--text-dim)">(optional)</span></span>
+                        <input type="text" id="iface" placeholder="eth0">
+                    </div>
+                    <div class="field">
+                        <span class="field-label">PROTOCOL</span>
+                        <div class="seg" id="proto-seg">
+                            <button data-val="" class="active">any</button>
+                            <button data-val="tcp">tcp</button>
+                            <button data-val="udp">udp</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="field-row">
+                    <div class="field grow">
+                        <span class="field-label">FROM (source)</span>
+                        <input type="text" id="from" placeholder="any / 203.0.113.5 / 10.0.0.0/8">
+                    </div>
+                    <div class="field">
+                        <span class="field-label">SOURCE PORT</span>
+                        <input type="text" id="from-port" placeholder="any" style="width:110px">
+                    </div>
+                </div>
+
+                <div class="field-row">
+                    <div class="field grow">
+                        <span class="field-label">TO (destination)</span>
+                        <input type="text" id="to" placeholder="any / 192.168.1.10 / 2001:db8::/32">
+                    </div>
+                    <div class="field">
+                        <span class="field-label">DEST PORT(S)</span>
+                        <input type="text" id="to-port" placeholder="22 / 80,443 / 6000:6007" style="width:150px">
+                    </div>
+                </div>
+
+                <div class="field-row">
+                    <div class="field grow">
+                        <span class="field-label">COMMENT <span style="color:var(--text-dim)">(optional)</span></span>
+                        <input type="text" id="comment" placeholder="allow ssh from office">
+                    </div>
+                </div>
+            </div>
+
+            <div class="errors" id="build-errors"></div>
+
+            <div class="card">
+                <div class="card-label">Command</div>
+                <div class="cmd-output" id="cmd-output">
+                    <span class="cmd-text" id="cmd-text"></span>
+                    <button class="copy-btn" id="copy-cmd">COPY</button>
+                </div>
+                <div class="summary" id="summary"></div>
+                <div class="ipv6-note" id="ipv6-note"></div>
+                <div style="margin-top:14px">
+                    <button class="add-btn" id="add-to-list">+ ADD TO LIST</button>
+                </div>
+            </div>
+
+            <div class="card hidden" id="list-card">
+                <div class="card-label">Rule list</div>
+                <div class="rule-list" id="rule-list"></div>
+                <div style="margin-top:12px; display:flex; gap:8px">
+                    <button class="action-btn" id="copy-list">COPY ALL</button>
+                    <button class="action-btn" id="clear-list">CLEAR</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ EXPLAIN TAB ============ -->
+        <div id="tab-explain" class="hidden" style="flex-direction:column; gap:16px">
+            <div class="card">
+                <div class="card-label">Paste ufw commands or `ufw status` output</div>
+                <textarea id="explain-input" placeholder="ufw allow in on eth0 from 10.0.0.0/8 to any port 443 proto tcp&#10;&#10;— or —&#10;&#10;Status: active&#10;&#10;To                         Action      From&#10;--                         ------      ----&#10;22/tcp                     ALLOW       Anywhere&#10;80,443/tcp                 ALLOW       10.0.0.0/8"></textarea>
+            </div>
+            <div class="explain-cards" id="explain-cards"></div>
+        </div>
+    </div>
+
+    <script>
+        'use strict';
+
+        /* ============ presets ============ */
+        const PRESETS = {
+            'SSH':        { port: '22',   proto: 'tcp' },
+            'HTTP':       { port: '80',   proto: 'tcp' },
+            'HTTPS':      { port: '443',  proto: 'tcp' },
+            'HTTP+HTTPS': { port: '80,443', proto: 'tcp' },
+            'DNS':        { port: '53',   proto: '' },
+            'SMTP':       { port: '25',   proto: 'tcp' },
+            'SMTPS':      { port: '465',  proto: 'tcp' },
+            'Submission': { port: '587',  proto: 'tcp' },
+            'IMAPS':      { port: '993',  proto: 'tcp' },
+            'NTP':        { port: '123',  proto: 'udp' },
+            'WireGuard':  { port: '51820', proto: 'udp' },
+            'OpenVPN':    { port: '1194', proto: 'udp' },
+            'Samba':      { port: '445',  proto: 'tcp' },
+            'RDP':        { port: '3389', proto: 'tcp' },
+            'PostgreSQL': { port: '5432', proto: 'tcp' },
+            'MySQL':      { port: '3306', proto: 'tcp' },
+            'mDNS':       { port: '5353', proto: 'udp' },
+        };
+        const PORT_NAMES = {
+            '22/tcp': 'SSH', '80/tcp': 'HTTP', '443/tcp': 'HTTPS', '53': 'DNS',
+            '25/tcp': 'SMTP', '465/tcp': 'SMTPS', '587/tcp': 'mail submission',
+            '993/tcp': 'IMAPS', '123/udp': 'NTP', '51820/udp': 'WireGuard',
+            '1194/udp': 'OpenVPN', '445/tcp': 'Samba', '3389/tcp': 'RDP',
+            '5432/tcp': 'PostgreSQL', '3306/tcp': 'MySQL', '5353/udp': 'mDNS',
+        };
+
+        /* ============ validation helpers ============ */
+        function isIPv4(s) {
+            const m = s.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+            return !!m && m.slice(1).every(o => +o <= 255 && String(+o) === o);
+        }
+        function isIPv6(s) {
+            if (!/^[0-9a-fA-F:]+$/.test(s) || !s.includes(':')) return false;
+            const dbl = (s.match(/::/g) || []).length;
+            if (dbl > 1 || /:::/.test(s)) return false;
+            const groups = s.split(':').filter(g => g !== '');
+            if (groups.some(g => g.length > 4)) return false;
+            if (dbl === 0 && s.split(':').length !== 8) return false;
+            if (dbl === 1 && groups.length > 7) return false;
+            return true;
+        }
+        function validAddress(s) {
+            if (!s || s.toLowerCase() === 'any') return { ok: true, family: 'both' };
+            const parts = s.split('/');
+            if (parts.length > 2) return { ok: false };
+            const [addr, prefix] = parts;
+            if (isIPv4(addr)) {
+                if (prefix !== undefined && !(/^\d{1,2}$/.test(prefix) && +prefix <= 32)) return { ok: false };
+                return { ok: true, family: 'v4' };
+            }
+            if (isIPv6(addr)) {
+                if (prefix !== undefined && !(/^\d{1,3}$/.test(prefix) && +prefix <= 128)) return { ok: false };
+                return { ok: true, family: 'v6' };
+            }
+            return { ok: false };
+        }
+        // returns {ok, multi} — multi means list/range (needs a concrete protocol)
+        function validPortSpec(s) {
+            if (!s) return { ok: true, multi: false, empty: true };
+            const okPort = p => /^\d{1,5}$/.test(p) && +p >= 1 && +p <= 65535;
+            if (/^\d+:\d+$/.test(s)) {
+                const [a, b] = s.split(':');
+                return { ok: okPort(a) && okPort(b) && +a < +b, multi: true };
+            }
+            if (s.includes(',')) {
+                const parts = s.split(',');
+                return { ok: parts.length > 0 && parts.every(okPort), multi: true };
+            }
+            return { ok: okPort(s), multi: false };
+        }
+
+        /* ============ rule model ============ */
+        // rule: {action, del, direction, iface, from, fromPort, to, toPort, proto, comment}
+        function isSimple(rule) {
+            return !rule.iface && rule.direction !== 'out'
+                && !rule.from && !rule.fromPort && !rule.to && !!rule.toPort;
+        }
+
+        function renderCommand(rule) {
+            const parts = ['ufw'];
+            if (rule.del) parts.push('delete');
+            parts.push(rule.action);
+            if (isSimple(rule)) {
+                parts.push(rule.proto ? `${rule.toPort}/${rule.proto}` : rule.toPort);
+            } else {
+                if (rule.direction === 'out') parts.push('out');
+                else if (rule.iface) parts.push('in');
+                if (rule.iface) parts.push('on', rule.iface);
+                if (rule.proto) parts.push('proto', rule.proto);
+                parts.push('from', rule.from || 'any');
+                if (rule.fromPort) parts.push('port', rule.fromPort);
+                parts.push('to', rule.to || 'any');
+                if (rule.toPort) parts.push('port', rule.toPort);
+            }
+            if (rule.comment) parts.push('comment', `'${rule.comment.replace(/'/g, "'\\''")}'`);
+            return parts.join(' ');
+        }
+
+        const ACTION_VERB = {
+            allow: 'Allow', deny: 'Silently drop', reject: 'Reject (sends refusal back)',
+            limit: 'Rate-limit (deny an IP making 6+ connections in 30s)',
+        };
+        function portPhrase(port, proto) {
+            if (!port) return '';
+            const svc = PORT_NAMES[`${port}/${proto}`] || (!proto && PORT_NAMES[port]) || null;
+            let p;
+            if (port.includes(':')) p = `ports ${port.replace(':', '–')}`;
+            else if (port.includes(',')) p = `ports ${port}`;
+            else p = `port ${port}`;
+            if (proto) p += `/${proto}`;
+            if (svc) p += ` (${svc})`;
+            return p;
+        }
+        function describeRule(rule) {
+            const bits = [];
+            bits.push(ACTION_VERB[rule.action] || rule.action);
+            bits.push(rule.direction === 'out' ? 'outgoing' : 'incoming');
+            bits.push('traffic');
+            if (rule.iface) bits.push(`on interface ${rule.iface}`);
+            if (rule.from || rule.fromPort) {
+                bits.push('from', rule.from || 'anywhere');
+                if (rule.fromPort) bits.push(`(source ${portPhrase(rule.fromPort, '')})`);
+            }
+            if (rule.to) bits.push('to', rule.to);
+            if (rule.toPort) bits.push(rule.to ? 'on' : 'to', portPhrase(rule.toPort, rule.proto));
+            else if (rule.proto) bits.push(`(${rule.proto} only)`);
+            if (!rule.from && !rule.fromPort && !rule.to && !rule.toPort && !rule.proto)
+                bits.push('from anywhere, on any port');
+            let s = bits.join(' ') + '.';
+            if (rule.del) s = 'Delete this rule: ' + s.charAt(0).toLowerCase() + s.slice(1);
+            return s;
+        }
+        function ipv6Note(rule) {
+            const f = validAddress(rule.from || 'any').family || 'both';
+            const t = validAddress(rule.to || 'any').family || 'both';
+            if (f === 'v6' || t === 'v6') return 'Applies to IPv6 only (address is IPv6).';
+            if (f === 'v4' || t === 'v4') return 'Applies to IPv4 only (address is IPv4).';
+            return 'Applies to both IPv4 and IPv6 (when IPV6=yes in /etc/default/ufw).';
+        }
+
+        /* ============ command parser (explain) ============ */
+        function parseUfwCommand(line) {
+            const toks = line.trim().split(/\s+/);
+            if (toks[0] === 'sudo') toks.shift();
+            if (toks[0] === 'ufw') toks.shift();
+            const rule = { action: '', del: false, direction: 'in', iface: '', from: '', fromPort: '', to: '', toPort: '', proto: '', comment: '' };
+            if (toks[0] === 'delete') { rule.del = true; toks.shift(); }
+            if (toks[0] === 'insert') { toks.shift(); if (/^\d+$/.test(toks[0])) toks.shift(); }
+            if (toks[0] === 'prepend') toks.shift();
+            if (!['allow', 'deny', 'reject', 'limit'].includes(toks[0])) {
+                return { error: `unrecognized action "${toks[0] || ''}" — expected allow/deny/reject/limit` };
+            }
+            rule.action = toks.shift();
+
+            const ci = toks.indexOf('comment');
+            if (ci !== -1) {
+                const commentToks = toks.splice(ci);
+                commentToks.shift();
+                rule.comment = commentToks.join(' ').replace(/^['"]|['"]$/g, '');
+            }
+            // direction/interface may precede simple syntax: `ufw deny out 25/tcp`
+            while (toks[0] === 'in' || toks[0] === 'out' || toks[0] === 'on') {
+                if (toks[0] === 'on') { toks.shift(); rule.iface = toks.shift() || ''; }
+                else rule.direction = toks.shift();
+            }
+            // simple syntax: single remaining token like 22, 22/tcp, 80,443/tcp, 6000:6007/udp
+            if (toks.length === 1 && /^[\d,:]+(\/(tcp|udp))?$/.test(toks[0])) {
+                const [port, proto] = toks[0].split('/');
+                rule.toPort = port;
+                rule.proto = proto || '';
+                return rule;
+            }
+            if (toks.length === 1 && /^[A-Za-z]/.test(toks[0]) && !['in', 'out'].includes(toks[0])) {
+                return { error: `service names and app profiles ("${toks[0]}") are not supported by this tool — use a port/protocol instead` };
+            }
+            let i = 0;
+            let lastAddr = null; // which side a bare `port` keyword belongs to
+            while (i < toks.length) {
+                const t = toks[i];
+                if (t === 'in' || t === 'out') { rule.direction = t; i++; }
+                else if (t === 'on') { rule.iface = toks[i + 1] || ''; i += 2; }
+                else if (t === 'proto') { rule.proto = toks[i + 1] || ''; i += 2; }
+                else if (t === 'from') { rule.from = toks[i + 1] || ''; lastAddr = 'from'; i += 2; }
+                else if (t === 'to') { rule.to = toks[i + 1] || ''; lastAddr = 'to'; i += 2; }
+                else if (t === 'port') {
+                    if (lastAddr === 'from') rule.fromPort = toks[i + 1] || '';
+                    else rule.toPort = toks[i + 1] || '';
+                    i += 2;
+                }
+                else if (t === 'app') return { error: 'app profiles are not supported by this tool' };
+                else return { error: `unexpected token "${t}"` };
+            }
+            if (rule.from.toLowerCase() === 'any') rule.from = '';
+            if (rule.to.toLowerCase() === 'any') rule.to = '';
+            return rule;
+        }
+
+        /* ============ status-output parser (explain) ============ */
+        function parseStatusLine(line) {
+            let s = line;
+            const numMatch = s.match(/^\[\s*\d+\]\s*/);
+            if (numMatch) s = s.slice(numMatch[0].length);
+            let comment = '';
+            const cm = s.match(/\s+#\s*(.+)$/);
+            if (cm) { comment = cm[1].trim(); s = s.slice(0, cm.index); }
+            // split on 2+ spaces: To | Action | From
+            const cols = s.trim().split(/\s{2,}/);
+            if (cols.length < 3) return null;
+            const am = cols[1].trim().match(/^(ALLOW|DENY|REJECT|LIMIT)(\s+(IN|OUT|FWD))?$/i);
+            if (!am) return null;
+            if (am[3] && am[3].toUpperCase() === 'FWD') {
+                return { error: 'route (forwarding) rules are out of scope for this tool' };
+            }
+            const rule = { action: am[1].toLowerCase(), del: false, direction: (am[3] || 'in').toLowerCase(), iface: '', from: '', fromPort: '', to: '', toPort: '', proto: '', comment, v6: false };
+
+            function parseEndpoint(str) {
+                const out = { addr: '', port: '', proto: '', iface: '', v6: false };
+                let e = str.trim();
+                if (/\(v6\)$/.test(e)) { out.v6 = true; e = e.replace(/\s*\(v6\)$/, '').trim(); }
+                const om = e.match(/\s+on\s+(\S+)$/);
+                if (om) { out.iface = om[1]; e = e.slice(0, om.index).trim(); }
+                if (/^anywhere$/i.test(e) || e === '') return out;
+                const pm = e.match(/^([\d,:]+)(\/(tcp|udp))?$/);
+                if (pm && validPortSpec(pm[1]).ok) { out.port = pm[1]; out.proto = pm[3] || ''; return out; }
+                const apm = e.match(/^(\S+)\s+([\d,:]+)(\/(tcp|udp))?$/);
+                if (apm && validAddress(apm[1]).ok) {
+                    out.addr = apm[1]; out.port = apm[2]; out.proto = apm[4] || '';
+                    return out;
+                }
+                if (validAddress(e).ok) { out.addr = e; return out; }
+                return null;
+            }
+
+            const toEp = parseEndpoint(cols[0]);
+            const fromEp = parseEndpoint(cols.slice(2).join('  '));
+            if (!toEp || !fromEp) return null;
+            rule.to = toEp.addr; rule.toPort = toEp.port;
+            rule.from = fromEp.addr; rule.fromPort = fromEp.port;
+            rule.proto = toEp.proto || fromEp.proto;
+            rule.iface = toEp.iface || fromEp.iface;
+            rule.v6 = toEp.v6 || fromEp.v6;
+            return rule;
+        }
+
+        /* ============ build tab state & wiring ============ */
+        const state = { action: 'allow', direction: 'in', proto: '' };
+        const $ = id => document.getElementById(id);
+
+        function segWire(segId, key) {
+            $(segId).addEventListener('click', e => {
+                const btn = e.target.closest('button');
+                if (!btn) return;
+                $(segId).querySelectorAll('button').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                state[key] = btn.dataset.val;
+                update();
+            });
+        }
+        segWire('action-seg', 'action');
+        segWire('dir-seg', 'direction');
+        segWire('proto-seg', 'proto');
+
+        function setProtoSeg(val) {
+            state.proto = val;
+            $('proto-seg').querySelectorAll('button').forEach(b =>
+                b.classList.toggle('active', b.dataset.val === val));
+        }
+
+        const presetSel = $('preset');
+        for (const name of Object.keys(PRESETS)) {
+            const o = document.createElement('option');
+            o.value = name;
+            o.textContent = `${name} — ${PRESETS[name].port}${PRESETS[name].proto ? '/' + PRESETS[name].proto : ''}`;
+            presetSel.appendChild(o);
+        }
+        presetSel.addEventListener('change', () => {
+            const p = PRESETS[presetSel.value];
+            if (!p) return;
+            $('to-port').value = p.port;
+            setProtoSeg(p.proto);
+            update();
+        });
+
+        ['iface', 'from', 'from-port', 'to', 'to-port', 'comment'].forEach(id =>
+            $(id).addEventListener('input', () => { presetSel.value = ''; update(); }));
+        $('delete-toggle').addEventListener('change', update);
+
+        function currentRule() {
+            const clean = id => {
+                const v = $(id).value.trim();
+                return v.toLowerCase() === 'any' ? '' : v;
+            };
+            return {
+                action: state.action,
+                del: $('delete-toggle').checked,
+                direction: state.direction,
+                iface: $('iface').value.trim(),
+                from: clean('from'),
+                fromPort: clean('from-port'),
+                to: clean('to'),
+                toPort: clean('to-port'),
+                proto: state.proto,
+                comment: $('comment').value.trim(),
+            };
+        }
+
+        function validateRule(rule) {
+            const errors = [], warns = [];
+            const mark = (id, bad) => $(id).classList.toggle('invalid', !!bad);
+            const fromV = validAddress(rule.from || 'any');
+            mark('from', !fromV.ok);
+            if (!fromV.ok) errors.push('FROM is not a valid IP address or CIDR block.');
+            const toV = validAddress(rule.to || 'any');
+            mark('to', !toV.ok);
+            if (!toV.ok) errors.push('TO is not a valid IP address or CIDR block.');
+            if (fromV.ok && toV.ok && fromV.family !== 'both' && toV.family !== 'both' && fromV.family !== toV.family)
+                errors.push('FROM and TO mix IPv4 and IPv6 — ufw rejects mixed-family rules.');
+            const fp = validPortSpec(rule.fromPort);
+            mark('from-port', !fp.ok);
+            if (!fp.ok) errors.push('SOURCE PORT must be 1–65535 (single, list `80,443`, or range `6000:6007`).');
+            const tp = validPortSpec(rule.toPort);
+            mark('to-port', !tp.ok);
+            if (!tp.ok) errors.push('DEST PORT must be 1–65535 (single, list `80,443`, or range `6000:6007`).');
+            if ((fp.multi || tp.multi) && !rule.proto)
+                errors.push('Port lists and ranges require a concrete protocol — select tcp or udp.');
+            if (rule.iface && !/^[\w.:-]+$/.test(rule.iface)) {
+                errors.push('INTERFACE contains invalid characters.');
+                mark('iface', true);
+            } else mark('iface', false);
+            if (rule.action === 'limit' && rule.direction === 'out')
+                warns.push('`limit` is designed for incoming connections; `limit out` is unusual.');
+            if (!rule.toPort && !rule.fromPort && !rule.iface && !rule.from && !rule.to && !rule.proto)
+                warns.push(`This matches ALL ${rule.direction === 'out' ? 'outgoing' : 'incoming'} traffic — equivalent to a default policy.`);
+            return { errors, warns };
+        }
+
+        function update() {
+            const rule = currentRule();
+            const { errors, warns } = validateRule(rule);
+            const errBox = $('build-errors');
+            errBox.innerHTML = '';
+            for (const e of errors) {
+                const d = document.createElement('div');
+                d.className = 'error-item'; d.textContent = '✗ ' + e;
+                errBox.appendChild(d);
+            }
+            for (const w of warns) {
+                const d = document.createElement('div');
+                d.className = 'warn-item'; d.textContent = '⚠ ' + w;
+                errBox.appendChild(d);
+            }
+            const valid = errors.length === 0;
+            $('cmd-output').classList.toggle('disabled', !valid);
+            $('copy-cmd').disabled = !valid;
+            $('add-to-list').disabled = !valid;
+            if (valid) {
+                $('cmd-text').textContent = renderCommand(rule);
+                $('summary').textContent = describeRule(rule);
+                $('ipv6-note').innerHTML = '<span class="badge">IPv6</span>';
+                $('ipv6-note').append(ipv6Note(rule));
+            } else {
+                $('cmd-text').textContent = '—';
+                $('summary').textContent = '';
+                $('ipv6-note').textContent = '';
+            }
+        }
+
+        function copyText(text, btn) {
+            const done = () => {
+                btn.classList.add('copied');
+                const orig = btn.textContent;
+                btn.textContent = 'COPIED';
+                setTimeout(() => { btn.classList.remove('copied'); btn.textContent = orig; }, 1200);
+            };
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(done);
+            } else {
+                const ta = document.createElement('textarea');
+                ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+                document.body.appendChild(ta); ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                done();
+            }
+        }
+        $('copy-cmd').addEventListener('click', () => copyText($('cmd-text').textContent, $('copy-cmd')));
+
+        /* ============ rule list ============ */
+        const ruleList = [];
+        $('add-to-list').addEventListener('click', () => {
+            const rule = currentRule();
+            if (validateRule(rule).errors.length) return;
+            ruleList.push(renderCommand(rule));
+            renderRuleList();
+        });
+        function renderRuleList() {
+            $('list-card').classList.toggle('hidden', ruleList.length === 0);
+            const box = $('rule-list');
+            box.innerHTML = '';
+            ruleList.forEach((cmd, i) => {
+                const row = document.createElement('div');
+                row.className = 'rule-row';
+                const span = document.createElement('span');
+                span.className = 'cmd'; span.textContent = cmd;
+                row.appendChild(span);
+                const mk = (label, cls, fn) => {
+                    const b = document.createElement('button');
+                    b.textContent = label; if (cls) b.className = cls;
+                    b.addEventListener('click', fn);
+                    row.appendChild(b);
+                };
+                mk('↑', '', () => { if (i > 0) { [ruleList[i - 1], ruleList[i]] = [ruleList[i], ruleList[i - 1]]; renderRuleList(); } });
+                mk('↓', '', () => { if (i < ruleList.length - 1) { [ruleList[i + 1], ruleList[i]] = [ruleList[i], ruleList[i + 1]]; renderRuleList(); } });
+                mk('✕', 'rm', () => { ruleList.splice(i, 1); renderRuleList(); });
+                box.appendChild(row);
+            });
+        }
+        $('copy-list').addEventListener('click', () => copyText(ruleList.join('\n'), $('copy-list')));
+        $('clear-list').addEventListener('click', () => { ruleList.length = 0; renderRuleList(); });
+
+        /* ============ explain tab ============ */
+        const SKIP_LINE = /^(status:|logging:|default:|new profiles:|to\s+action\s+from$|-{2,}\s+-{2,})/i;
+
+        function explain() {
+            const box = $('explain-cards');
+            box.innerHTML = '';
+            const lines = $('explain-input').value.split('\n');
+            for (const raw of lines) {
+                const line = raw.trim();
+                if (!line || SKIP_LINE.test(line)) continue;
+                let rule = null, err = null;
+                if (/^(sudo\s+)?ufw\s/.test(line) || /^(delete\s+)?(allow|deny|reject|limit)\s/.test(line)) {
+                    const r = parseUfwCommand(line);
+                    if (r.error) err = r.error; else rule = r;
+                } else {
+                    const r = parseStatusLine(raw);
+                    if (r && r.error) err = r.error;
+                    else if (r) rule = r;
+                    else err = 'could not parse this line as a ufw command or status entry';
+                }
+                const card = document.createElement('div');
+                const src = document.createElement('div');
+                src.className = 'src-line'; src.textContent = line;
+                if (err) {
+                    card.className = 'rule-card warn';
+                    const w = document.createElement('div');
+                    w.className = 'warn-text'; w.textContent = '⚠ ' + err;
+                    card.append(src, w);
+                } else {
+                    card.className = 'rule-card ' + rule.action;
+                    const sentence = document.createElement('div');
+                    sentence.className = 'sentence';
+                    const badge = document.createElement('span');
+                    badge.className = 'action-badge ' + rule.action;
+                    badge.textContent = (rule.del ? 'delete ' : '') + rule.action;
+                    sentence.appendChild(badge);
+                    sentence.append(describeRule(rule));
+                    const dl = document.createElement('dl');
+                    dl.className = 'detail-grid';
+                    const add = (k, v) => {
+                        if (!v) return;
+                        const dt = document.createElement('dt'); dt.textContent = k;
+                        const dd = document.createElement('dd'); dd.textContent = v;
+                        dl.append(dt, dd);
+                    };
+                    add('direction', rule.direction);
+                    add('interface', rule.iface);
+                    add('from', (rule.from || 'anywhere') + (rule.fromPort ? ' port ' + rule.fromPort : ''));
+                    add('to', (rule.to || 'anywhere') + (rule.toPort ? ' port ' + rule.toPort : ''));
+                    add('protocol', rule.proto || 'any');
+                    add('comment', rule.comment);
+                    const note = document.createElement('div');
+                    note.className = 'ipv6-note';
+                    const b = document.createElement('span');
+                    b.className = 'badge'; b.textContent = 'IPv6';
+                    note.appendChild(b);
+                    note.append(rule.v6 ? 'IPv6 entry (from `ufw status`).' : ipv6Note(rule));
+                    card.append(src, sentence, dl, note);
+                }
+                box.appendChild(card);
+            }
+        }
+        let explainTimer;
+        $('explain-input').addEventListener('input', () => {
+            clearTimeout(explainTimer);
+            explainTimer = setTimeout(explain, 250);
+        });
+
+        /* ============ tabs ============ */
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                $('tab-build').classList.toggle('hidden', btn.dataset.tab !== 'build');
+                const ex = $('tab-explain');
+                ex.classList.toggle('hidden', btn.dataset.tab !== 'explain');
+                if (btn.dataset.tab === 'explain') ex.style.display = 'flex';
+            });
+        });
+
+        /* init */
+        $('to-port').value = '22';
+        setProtoSeg('tcp');
+        presetSel.value = 'SSH';
+        update();
+    </script>
+</body>
+</html>
