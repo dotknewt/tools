@@ -93,13 +93,22 @@
         .workspace {
             display: grid;
             grid-template-columns: minmax(340px, 42%) 1fr;
-            height: calc(100vh - 49px);
+            min-height: calc(100vh - 49px);
         }
+
+        .workspace.input-collapsed { grid-template-columns: 48px 1fr; }
+        .workspace.input-collapsed .input-panel .panel-title,
+        .workspace.input-collapsed .input-panel #input,
+        .workspace.input-collapsed .input-panel .btn.sample-btn,
+        .workspace.input-collapsed .input-panel .btn.clear-btn { display: none; }
+        .workspace.input-collapsed .input-panel .panel-head { justify-content: center; padding: 10px 6px; }
 
         @media (max-width: 860px) {
             .workspace { grid-template-columns: 1fr; height: auto; }
+            .workspace.input-collapsed { grid-template-columns: 1fr; }
             .results-panel { border-left: none; border-top: 1px solid var(--border); min-height: 400px; }
             .input-panel textarea { min-height: 220px; }
+            .workspace.input-collapsed .input-panel .panel-head { justify-content: flex-start; padding: 10px 14px; }
         }
 
         .input-panel {
@@ -158,18 +167,20 @@
         }
         #input::placeholder { color: var(--text-dim); }
 
-        .results-panel { display: flex; flex-direction: column; overflow: hidden; }
+        .results-panel { display: flex; flex-direction: column; }
 
         .results-body {
             flex: 1;
-            overflow-y: auto;
             padding: 14px;
-            display: flex;
-            flex-direction: column;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            grid-auto-rows: min-content;
+            align-items: start;
             gap: 12px;
         }
 
         .empty-note {
+            grid-column: 1 / -1;
             color: var(--text-dim);
             font-family: var(--font-mono);
             font-size: 11.5px;
@@ -178,7 +189,7 @@
             text-align: center;
         }
 
-        .status-row { display: flex; flex-wrap: wrap; gap: 8px; }
+        .status-row { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
 
         .chip {
             font-family: var(--font-mono);
@@ -199,7 +210,10 @@
             border-radius: var(--radius-lg);
             background: var(--surface);
             overflow: hidden;
+            min-width: 0;
         }
+
+        .sect.sect-full { grid-column: 1 / -1; }
 
         .sect-head {
             display: flex;
@@ -341,9 +355,10 @@
     <div class="workspace">
         <div class="input-panel">
             <div class="panel-head">
+                <button class="btn" id="toggle-input-btn" onclick="toggleInput()" title="Collapse input panel">&#8249;</button>
                 <span class="panel-title">Paste raw headers</span>
-                <button class="btn" onclick="loadSample()">Sample</button>
-                <button class="btn" onclick="clearInput()">Clear</button>
+                <button class="btn sample-btn" onclick="loadSample()">Sample</button>
+                <button class="btn clear-btn" onclick="clearInput()">Clear</button>
             </div>
             <textarea id="input" spellcheck="false"
                 placeholder="Paste the full raw message source or just the headers (View source / Show original in your mail client).
@@ -513,9 +528,9 @@ List-Unsubscribe: <mailto:unsub@notices.example-bank.com>`;
         }
 
         // ── analysis + render ───────────────────────────────────
-        function section(color, name, body, count = null) {
+        function section(color, name, body, count = null, wide = false) {
             const badge = count !== null ? `<span class="sect-count">${count}</span>` : '';
-            return `<div class="sect">
+            return `<div class="sect${wide ? ' sect-full' : ''}">
                 <div class="sect-head"><span class="sect-name"><span class="dot" style="background:${color}"></span>${name}</span>${badge}</div>
                 <div class="sect-body">${body}</div>
             </div>`;
@@ -666,7 +681,7 @@ List-Unsubscribe: <mailto:unsub@notices.example-bank.com>`;
                 let totalNote = '';
                 if (firstDate && lastDate && lastDate - firstDate >= 0)
                     totalNote = ` · total transit ${fmtDelay(lastDate - firstDate).slice(1)}`;
-                html.push(section('#63b3ed', `Received Chain <span style="text-transform:none;letter-spacing:0;color:var(--text-dim)">(oldest → newest${totalNote})</span>`, rows, received.length));
+                html.push(section('#63b3ed', `Received Chain <span style="text-transform:none;letter-spacing:0;color:var(--text-dim)">(oldest → newest${totalNote})</span>`, rows, received.length, true));
             }
 
             // ── DKIM signatures ──
@@ -680,7 +695,7 @@ List-Unsubscribe: <mailto:unsub@notices.example-bank.com>`;
             }
 
             // ── all headers ──
-            html.push(`<div class="sect"><details class="fold">
+            html.push(`<div class="sect sect-full"><details class="fold">
                 <summary><div class="sect-head" style="border-bottom:none"><span class="sect-name"><span class="dot" style="background:#5c6275"></span>All Headers (click to expand)</span><span class="sect-count">${hdrs.length}</span></div></summary>
                 <div class="sect-body" style="border-top:1px solid var(--border)"><table class="raw">` +
                 hdrs.map(h => `<tr><td class="raw-name">${esc(h.name)}</td><td class="raw-val">${esc(h.value)}</td></tr>`).join('') +
@@ -696,6 +711,14 @@ List-Unsubscribe: <mailto:unsub@notices.example-bank.com>`;
         }
 
         // ── UI wiring ───────────────────────────────────────────
+        function toggleInput() {
+            const ws = document.querySelector('.workspace');
+            const collapsed = ws.classList.toggle('input-collapsed');
+            const btn = document.getElementById('toggle-input-btn');
+            btn.innerHTML = collapsed ? '&#8250;' : '&#8249;';
+            btn.title = collapsed ? 'Expand input panel' : 'Collapse input panel';
+        }
+
         function loadSample() {
             document.getElementById('input').value = SAMPLE;
             analyze();
