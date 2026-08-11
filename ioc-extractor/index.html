@@ -275,8 +275,8 @@ Defanged indicators (hxxp, [.], [at], [dot]) are refanged automatically before e
             <div class="panel-head">
                 <span class="panel-title">Indicators</span>
                 <div class="fang-toggle">
-                    <button id="mode-refanged" class="active" onclick="setMode('refanged')">Refanged</button>
-                    <button id="mode-defanged" onclick="setMode('defanged')">Defanged</button>
+                    <button id="mode-refanged" onclick="setMode('refanged')">Refanged</button>
+                    <button id="mode-defanged" class="active" onclick="setMode('defanged')">Defanged</button>
                 </div>
                 <button class="btn" id="copy-all-btn" onclick="copyAll(this)">Copy all</button>
                 <button class="btn" onclick="exportCSV()">CSV</button>
@@ -311,7 +311,7 @@ Defanged indicators (hxxp, [.], [at], [dot]) are refanged automatically before e
             'sa ae ir pk kz by cz sk ro bg rs hr si lt lv ee ar cl pe ve uy ng ke eg ma').split(' '));
 
         let iocs = {};        // { catKey: [values] }
-        let mode = 'refanged';
+        let mode = 'defanged';
 
         // ── Refang ──────────────────────────────────────────────
         function refang(text) {
