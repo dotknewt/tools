@@ -583,10 +583,10 @@
 
         function drawEdge(grid, edge, boxes, fromX, toX) {
             const src = boxes.get(edge.from), dst = boxes.get(edge.to);
-            if (!src || !dst) return;
+            if (!src || !dst) return null;
             const fromY = src.bottomY;
             const toY = dst.y - 1;
-            if (toY < fromY) return;
+            if (toY < fromY) return null;
             const arrow = ARROW[edge.kind] || '↓';
             const hline = HLINE[edge.kind] || '─';
 
@@ -603,7 +603,20 @@
                 plotChar(grid, toX, toY, arrow);
             }
 
-            if (edge.label) plotText(grid, toX + 2, toY, truncateLabel(edge.label));
+            return edge.label ? { x: toX + 2, y: toY, text: truncateLabel(edge.label) } : null;
+        }
+
+        // Labels are placed only after every edge's lines/arrows are drawn, and
+        // only if the full label fits in empty cells — otherwise it's dropped
+        // rather than overwritten mid-word by another edge's arrow, or cut off
+        // into an illegible fragment.
+        function placeEdgeLabel(grid, label) {
+            if (!label) return;
+            const row = grid.has(label.y) ? grid.get(label.y) : (grid.set(label.y, new Map()), grid.get(label.y));
+            for (let i = 0; i < label.text.length; i++) {
+                if (row.has(label.x + i)) return;
+            }
+            for (let i = 0; i < label.text.length; i++) row.set(label.x + i, label.text[i]);
         }
 
         function renderComponent(comp) {
@@ -630,8 +643,9 @@
 
             const backSet = new Set(backEdges);
             const { departureX, arrivalX } = assignEdgeColumns(comp, boxes, backSet);
-            comp.edges.filter(e => !backSet.has(e))
-                .forEach(e => drawEdge(grid, e, boxes, departureX.get(e.id), arrivalX.get(e.id)));
+            const labels = comp.edges.filter(e => !backSet.has(e))
+                .map(e => drawEdge(grid, e, boxes, departureX.get(e.id), arrivalX.get(e.id)));
+            labels.forEach(label => placeEdgeLabel(grid, label));
 
             let out = serializeGrid(grid);
 
