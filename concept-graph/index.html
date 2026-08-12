@@ -581,6 +581,19 @@
             return { departureX, arrivalX };
         }
 
+        // Draws a single rounded-corner bend at row y from column x1 (arriving
+        // from above) over to column x2 (continuing below), matching the same
+        // ╭╮╰╯ corner style used for box outlines so a bent connector reads as
+        // one continuous line rather than a loose diagonal fragment.
+        function elbow(grid, x1, y, x2, hline) {
+            if (x1 === x2) { plotIfEmpty(grid, x1, y, '│'); return; }
+            const right = x2 > x1;
+            plotIfEmpty(grid, x1, y, right ? '╰' : '╯');
+            const lo = Math.min(x1, x2) + 1, hi = Math.max(x1, x2) - 1;
+            for (let x = lo; x <= hi; x++) plotIfEmpty(grid, x, y, hline);
+            plotIfEmpty(grid, x2, y, right ? '╮' : '╭');
+        }
+
         function drawEdge(grid, edge, boxes, fromX, toX) {
             const src = boxes.get(edge.from), dst = boxes.get(edge.to);
             if (!src || !dst) return null;
@@ -592,16 +605,34 @@
 
             if (fromX === toX) {
                 for (let y = fromY; y < toY; y++) plotIfEmpty(grid, fromX, y, '│');
-                plotChar(grid, toX, toY, arrow);
             } else {
-                const jogY = fromY;
-                const diag = toX > fromX ? '╲' : '╱';
-                plotIfEmpty(grid, fromX, jogY, diag);
-                const lo = Math.min(fromX, toX) + 1, hi = Math.max(fromX, toX) - 1;
-                for (let x = lo; x <= hi; x++) plotIfEmpty(grid, x, jogY, hline);
-                for (let y = jogY + 1; y < toY; y++) plotIfEmpty(grid, toX, y, '│');
-                plotChar(grid, toX, toY, arrow);
+                elbow(grid, fromX, fromY, toX, hline);
+                for (let y = fromY + 1; y < toY; y++) plotIfEmpty(grid, toX, y, '│');
             }
+            plotChar(grid, toX, toY, arrow);
+
+            return edge.label ? { x: toX + 2, y: toY, text: truncateLabel(edge.label) } : null;
+        }
+
+        // Edges that skip a rank (e.g. A -> C when B sits between them) can't
+        // just drop straight down at their arrival column — that column runs
+        // through whatever box occupies the intervening rank. Route them out
+        // to a side lane past every box first, then back in just above the
+        // destination, so the connector never crosses through unrelated boxes.
+        function drawSkipEdge(grid, edge, boxes, fromX, toX, laneX) {
+            const src = boxes.get(edge.from), dst = boxes.get(edge.to);
+            if (!src || !dst) return null;
+            const fromY = src.bottomY;
+            const toY = dst.y - 1;
+            if (toY < fromY) return null;
+            const arrow = ARROW[edge.kind] || '↓';
+            const hline = HLINE[edge.kind] || '─';
+            const inY = toY - 1;
+
+            elbow(grid, fromX, fromY, laneX, hline);
+            for (let y = fromY + 1; y < inY; y++) plotIfEmpty(grid, laneX, y, '│');
+            if (inY > fromY) elbow(grid, laneX, inY, toX, hline);
+            plotChar(grid, toX, toY, arrow);
 
             return edge.label ? { x: toX + 2, y: toY, text: truncateLabel(edge.label) } : null;
         }
@@ -643,8 +674,18 @@
 
             const backSet = new Set(backEdges);
             const { departureX, arrivalX } = assignEdgeColumns(comp, boxes, backSet);
+            const maxX = Math.max(0, ...[...boxes.values()].map(b => b.x + b.w - 1));
+            let laneCount = 0;
             const labels = comp.edges.filter(e => !backSet.has(e))
-                .map(e => drawEdge(grid, e, boxes, departureX.get(e.id), arrivalX.get(e.id)));
+                .map(e => {
+                    const gap = rankOf.get(e.to) - rankOf.get(e.from);
+                    if (gap > 1) {
+                        const laneX = maxX + 3 + laneCount * 2;
+                        laneCount++;
+                        return drawSkipEdge(grid, e, boxes, departureX.get(e.id), arrivalX.get(e.id), laneX);
+                    }
+                    return drawEdge(grid, e, boxes, departureX.get(e.id), arrivalX.get(e.id));
+                });
             labels.forEach(label => placeEdgeLabel(grid, label));
 
             let out = serializeGrid(grid);
