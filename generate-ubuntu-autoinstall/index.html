@@ -310,7 +310,7 @@
         <span class="sep">/</span>
         <span class="header-title">Ubuntu Autoinstall Generator</span>
         <span class="header-badge">Ubuntu</span>
-        <span class="header-filename">autoinstall.yaml</span>
+        <span class="header-filename" id="output-filename">autoinstall.yaml</span>
     </header>
 
     <div class="workspace">
@@ -478,7 +478,14 @@
                 </div>
             </div>
 
-            <button class="gen-btn" onclick="generate()">Generate autoinstall.yaml</button>
+            <div class="field">
+                <div class="toggle-row">
+                    <input type="checkbox" class="toggle" id="cloud-config" onchange="generate()">
+                    <label class="toggle-label" for="cloud-config">Cloud-config (user-data)</label>
+                </div>
+            </div>
+
+            <button class="gen-btn" id="generate-btn" onclick="generate()">Generate autoinstall.yaml</button>
 
         </div>
 
@@ -577,7 +584,13 @@
             // Shutdown
             cfg.shutdown = v('shutdown');
 
-            g('output').textContent = toYAML(cfg);
+            const cloudConfig = ck('cloud-config');
+            const filename = cloudConfig ? 'user-data' : 'autoinstall.yaml';
+            g('output').textContent = cloudConfig
+                ? '#cloud-config\n' + toYAML({ autoinstall: cfg })
+                : toYAML(cfg);
+            g('output-filename').textContent = filename;
+            g('generate-btn').textContent = 'Generate ' + filename;
         }
 
         function toYAML(obj, depth) {
@@ -638,7 +651,7 @@
             const blob = new Blob([g('output').textContent], { type: 'text/yaml' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
-            a.download = 'autoinstall.yaml';
+            a.download = ck('cloud-config') ? 'user-data' : 'autoinstall.yaml';
             a.click();
             URL.revokeObjectURL(a.href);
         }
