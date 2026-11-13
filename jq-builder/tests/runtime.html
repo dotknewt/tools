@@ -37,6 +37,108 @@
 
   async function main() {
     try {
+      const coreHtml = await fetch('../index.html').then((response) => response.text());
+      const coreMatch = coreHtml.match(/<script id="jq-core">([\s\S]*?)<\/script>/);
+      if (!coreMatch) throw new Error('jq-core script was not found');
+      Function(coreMatch[1])();
+      const core = globalThis.JQCore;
+      const limits = { inputBytes: 5242880, outputBytes: 1048576, outputValues: 1000 };
+
+      const literalBuilder = core.compileBuilder({
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: ['a.b'], op: 'eq', value: 'yes' },
+        steps: [],
+        projection: [
+          { path: ['"'], name: 'quote' },
+          { path: ['__proto__'], name: 'proto' },
+          { path: [0], name: 'zero' },
+          { path: [''], name: 'empty' }
+        ]
+      });
+      const literalInput = core.normalizeInput('{"a.b":"yes","\\\"":1,"__proto__":2,"0":"wrong"}', 'json');
+      const literal = await run({
+        type: 'run', input: literalInput.text,
+        filter: core.effectiveFilter(literalBuilder.filter, false),
+        regexChecks: literalBuilder.regexChecks, limits
+      });
+      check('browser compiler preserves literal paths', literal.status === 'ok' && literal.outputText === '{"quote":1,"proto":2,"zero":null,"empty":null}', JSON.stringify(literal));
+
+      const conditionBuilder = core.compileBuilder({
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'group', op: 'and', children: [
+          { kind: 'group', op: 'or', children: [
+            { kind: 'leaf', path: ['kind'], op: 'eq', value: 'a' },
+            { kind: 'leaf', path: ['kind'], op: 'eq', value: 'b' }
+          ] },
+          { kind: 'group', op: 'not', children: [{ kind: 'leaf', path: ['name'], op: 'regex', value: '^no', flags: 'i' }] }
+        ] },
+        steps: [], projection: null
+      });
+      const condition = await run({
+        type: 'run', input: '{"kind":"a","name":"yes"}\n{"kind":"b","name":"nope"}',
+        filter: core.effectiveFilter(conditionBuilder.filter, false),
+        regexChecks: conditionBuilder.regexChecks, limits
+      });
+      check('browser compiler preserves nested conditions and regex flags', condition.status === 'ok' && condition.outputText === '{"kind":"a","name":"yes"}', JSON.stringify(condition));
+
+      const orderingBuilder = core.compileBuilder({
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: ['name'], op: 'lt', value: 'm' },
+        steps: [], projection: null
+      });
+      const ordering = await run({
+        type: 'run', input: '{"name":"a"}\n{"name":"z"}\n{"name":1}',
+        filter: core.effectiveFilter(orderingBuilder.filter, false),
+        regexChecks: orderingBuilder.regexChecks, limits
+      });
+      check('browser compiler orders same-type strings only', ordering.status === 'ok' && ordering.outputText === '{"name":"a"}', JSON.stringify(ordering));
+
+      const captureBuilder = core.compileBuilder({
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'group', op: 'and', children: [] },
+        steps: [{ op: 'capture', path: ['text'], mode: 'update', pattern: '(?<x>a)', flags: 'g' }],
+        projection: null
+      });
+      const capture = await run({
+        type: 'run', input: '{"id":1,"text":"aba"}',
+        filter: core.effectiveFilter(captureBuilder.filter, false),
+        regexChecks: captureBuilder.regexChecks, limits
+      });
+      check('browser compiler preserves many-match capture updates', capture.status === 'ok' && capture.outputText === '{"id":1,"text":[{"x":"a"},{"x":"a"}]}', JSON.stringify(capture));
+
+      const invalidTargetBuilder = core.compileBuilder({
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'group', op: 'and', children: [] },
+        steps: [{ op: 'capture', path: [], mode: 'update', pattern: '(?<x>a)', flags: '' }],
+        projection: null
+      });
+      const invalidTarget = await run({
+        type: 'run', input: 'null',
+        filter: core.effectiveFilter(invalidTargetBuilder.filter, false),
+        regexChecks: invalidTargetBuilder.regexChecks, limits
+      });
+      check('browser compiler errors on invalid transformation targets', invalidTarget.status === 'error' && invalidTarget.error && invalidTarget.error.stage === 'filter' && invalidTarget.error.message.includes('transformation target must be a string'), JSON.stringify(invalidTarget));
+
+      const emitNoMatchBuilder = core.compileBuilder({
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'group', op: 'and', children: [] },
+        steps: [{ op: 'capture', path: [], mode: 'emit', pattern: '(?<x>a)', flags: '' }],
+        projection: null
+      });
+      const emitNoMatch = await run({
+        type: 'run', input: JSON.stringify('zzz'),
+        filter: core.effectiveFilter(emitNoMatchBuilder.filter, false),
+        regexChecks: emitNoMatchBuilder.regexChecks, limits
+      });
+      check('browser compiler emits zero values for valid zero-match strings', emitNoMatch.status === 'ok' && emitNoMatch.outputText === '', JSON.stringify(emitNoMatch));
+
+      const collectedInput = core.normalizeInput('1\n2', 'jsonl');
+      const collected = await run({
+        type: 'run', input: collectedInput.text, filter: core.effectiveFilter('.', true),
+        regexChecks: [], limits
+      });
+      check('browser compiler collects JSONL values once', collected.status === 'ok' && collected.outputText === '[1,2]', JSON.stringify(collected));
+
       const regex = await run({
         type: 'run',
         input: JSON.stringify('abc'),
@@ -54,7 +156,7 @@
           { pattern: 'a', flags: '' },
           { pattern: '(?<name>Ada)', flags: '' }
         ],
-        limits: { inputBytes: 5242880, outputBytes: 1048576, outputValues: 1000 }
+        limits
       });
       check('test("AbC";"i") is true', regex.status === 'ok' && regex.outputText.includes('[true,'), JSON.stringify(regex));
       check('match("a") exposes offset and string', regex.status === 'ok' && regex.outputText.includes('"offset":0') && regex.outputText.includes('"string":"a"'), regex.outputText);
@@ -70,7 +172,7 @@
         input: '1\n',
         filter: 'inputs | debug',
         regexChecks: [],
-        limits: { inputBytes: 5242880, outputBytes: 1048576, outputValues: 1000 }
+        limits
       });
       check('successful jq stderr does not fail the run', stderrSuccess.status === 'ok' && stderrSuccess.outputText === '1', JSON.stringify(stderrSuccess));
 
@@ -79,7 +181,7 @@
         input: JSON.stringify('abc'),
         filter: '.',
         regexChecks: [{ pattern: '[', flags: '' }],
-        limits: { inputBytes: 5242880, outputBytes: 1048576, outputValues: 1000 }
+        limits
       });
       check('invalid regex reports an error', invalid.status === 'error' && invalid.error && invalid.error.stage === 'regex', JSON.stringify(invalid));
 
@@ -88,7 +190,7 @@
         input: '{"n":1}\n{"n":2}\n',
         filter: 'inputs | .n',
         regexChecks: [],
-        limits: { inputBytes: 5242880, outputBytes: 1048576, outputValues: 1000 }
+        limits
       });
       check('inputs consumes multiple values exactly once', stream.status === 'ok' && stream.outputText === '1\n2', JSON.stringify(stream));
 
@@ -97,7 +199,7 @@
         input: '',
         filter: '[inputs]',
         regexChecks: [],
-        limits: { inputBytes: 5242880, outputBytes: 1048576, outputValues: 1000 }
+        limits
       });
       check('inputs accepts an empty stream', empty.status === 'ok' && empty.outputText === '[]', JSON.stringify(empty));
 

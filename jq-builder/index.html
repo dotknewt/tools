@@ -1,0 +1,415 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>jq builder</title>
+<script id="jq-core">
+(function (root) {
+  'use strict';
+
+  // Replacement grammar: all replacement text is literal except jq-style
+  // \(.name) interpolation, where the expression is only a named-capture
+  // field path (including quoted fields such as .["a.b"]). Arbitrary jq
+  // expressions are intentionally not accepted by the builder compiler.
+  var LEAF_OPS = new Set(['eq', 'ne', 'lt', 'le', 'gt', 'ge', 'exists', 'missing', 'null', 'type', 'contains', 'startsWith', 'endsWith', 'regex', 'any', 'all']);
+  var STEP_OPS = new Set(['match', 'capture', 'sub', 'gsub']);
+  var FORMATS = new Set(['json', 'jsonc', 'jsonl']);
+
+  function inputError(message, line) {
+    var error = new Error(message);
+    error.code = 'INVALID_INPUT';
+    if (line !== undefined) error.line = line;
+    return error;
+  }
+
+  function stripJsonc(text) {
+    var result = '';
+    var quote = false;
+    var escaped = false;
+    for (var i = 0; i < text.length; i += 1) {
+      var ch = text[i];
+      var next = text[i + 1];
+      if (quote) {
+        result += ch;
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') quote = false;
+        continue;
+      }
+      if (ch === '"') {
+        quote = true;
+        result += ch;
+      } else if (ch === '/' && next === '/') {
+        result += '  ';
+        i += 2;
+        while (i < text.length && text[i] !== '\n' && text[i] !== '\r') {
+          result += ' ';
+          i += 1;
+        }
+        i -= 1;
+      } else if (ch === '/' && next === '*') {
+        result += '  ';
+        i += 2;
+        var closed = false;
+        while (i < text.length) {
+          if (text[i] === '*' && text[i + 1] === '/') {
+            result += '  ';
+            i += 1;
+            closed = true;
+            break;
+          }
+          if (text[i] === '\n' || text[i] === '\r') result += text[i];
+          else result += ' ';
+          i += 1;
+        }
+        if (!closed) throw inputError('unterminated JSONC comment');
+      } else {
+        result += ch;
+      }
+    }
+    var withoutTrailing = '';
+    var containers = [];
+    quote = false;
+    escaped = false;
+    for (var j = 0; j < result.length; j += 1) {
+      var current = result[j];
+      if (quote) {
+        withoutTrailing += current;
+        if (escaped) escaped = false;
+        else if (current === '\\') escaped = true;
+        else if (current === '"') quote = false;
+        continue;
+      }
+      if (current === '"') {
+        quote = true;
+        withoutTrailing += current;
+      } else if (current === ',') {
+        var k = j + 1;
+        while (k < result.length && /\s/.test(result[k])) k += 1;
+        var previous = j - 1;
+        while (previous >= 0 && /\s/.test(result[previous])) previous -= 1;
+        var closer = result[k];
+        var matching = closer === ']' ? '[' : closer === '}' ? '{' : '';
+        var previousIsValue = previous >= 0 && !['[', '{', ',', ':'].includes(result[previous]);
+        if (!(matching && containers[containers.length - 1] === matching && previousIsValue)) withoutTrailing += current;
+      } else if (current === '[' || current === '{') {
+        containers.push(current);
+        withoutTrailing += current;
+      } else if (current === ']' || current === '}') {
+        if (containers.length > 0 && containers[containers.length - 1] === (current === ']' ? '[' : '{')) containers.pop();
+        withoutTrailing += current;
+      } else {
+        withoutTrailing += current;
+      }
+    }
+    return withoutTrailing;
+  }
+
+  function parseSample(text, line) {
+    try {
+      return JSON.parse(text);
+    } catch (error) {
+      throw inputError('invalid JSON' + (line === undefined ? '' : ' on line ' + line), line);
+    }
+  }
+
+  function normalizeInput(text, format) {
+    if (typeof text !== 'string') throw inputError('input must be text');
+    if (!FORMATS.has(format)) throw inputError('unsupported input format: ' + String(format));
+    if (format === 'jsonl') {
+      var lines = text.split(/\r?\n|\r/);
+      var normalizedLines = [];
+      var samples = [];
+      for (var i = 0; i < lines.length; i += 1) {
+        if (lines[i].trim() === '') continue;
+        samples.push(parseSample(lines[i], i + 1));
+        normalizedLines.push(lines[i]);
+      }
+      return { text: normalizedLines.join('\n'), samples: samples, warnings: [] };
+    }
+    var normalized = format === 'jsonc' ? stripJsonc(text) : text;
+    return { text: normalized, samples: [parseSample(normalized)], warnings: [] };
+  }
+
+  function suggestPaths(samples) {
+    if (!Array.isArray(samples)) throw new TypeError('samples must be an array');
+    var paths = [];
+    var seen = new Set();
+    var maxPaths = 500;
+    function add(path) {
+      var key = JSON.stringify(path);
+      if (seen.has(key) || paths.length >= maxPaths) return;
+      seen.add(key);
+      paths.push(path.slice());
+    }
+    function visit(value, path, depth) {
+      if (paths.length >= maxPaths || depth > 32 || value === null || typeof value !== 'object') return;
+      if (Array.isArray(value)) {
+        for (var i = 0; i < value.length && paths.length < maxPaths; i += 1) {
+          var arrayPath = path.concat(i);
+          add(arrayPath);
+          visit(value[i], arrayPath, depth + 1);
+        }
+      } else {
+        Object.keys(value).sort().forEach(function (key) {
+          if (paths.length >= maxPaths) return;
+          var objectPath = path.concat(key);
+          add(objectPath);
+          visit(value[key], objectPath, depth + 1);
+        });
+      }
+    }
+    samples.forEach(function (sample) { visit(sample, [], 0); });
+    return { paths: paths, truncated: paths.length >= maxPaths };
+  }
+
+  function isJsonValue(value, seen) {
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+    if (typeof value === 'number') return Number.isFinite(value);
+    if (typeof value !== 'object') return false;
+    if (seen.has(value)) return false;
+    seen.add(value);
+    if (Array.isArray(value)) return value.every(function (item) { return isJsonValue(item, seen); });
+    return Object.keys(value).every(function (key) { return isJsonValue(value[key], seen); });
+  }
+
+  function pathLiteral(path) {
+    if (!Array.isArray(path)) throw new TypeError('path must be an array');
+    return path.map(function (part) {
+      if (typeof part === 'string') return part;
+      if (typeof part === 'number' && Number.isInteger(part) && part >= 0) return part;
+      throw new TypeError('path entries must be strings or nonnegative integer indices');
+    });
+  }
+
+  function jsonLiteral(value) {
+    if (!isJsonValue(value, new Set())) throw new TypeError('value must be JSON serializable');
+    var text = JSON.stringify(value);
+    if (text === undefined) throw new TypeError('value must be JSON serializable');
+    return text;
+  }
+
+  function validateCondition(condition, regexChecks) {
+    if (!condition || typeof condition !== 'object') throw new TypeError('condition must be an object');
+    if (condition.kind === 'group') {
+      if (!['and', 'or', 'not'].includes(condition.op) || !Array.isArray(condition.children)) throw new TypeError('invalid condition group');
+      if (condition.op === 'not' && condition.children.length !== 1) throw new TypeError('not requires exactly one child');
+      condition.children.forEach(function (child) { validateCondition(child, regexChecks); });
+      return;
+    }
+    if (condition.kind !== 'leaf' || !LEAF_OPS.has(condition.op)) throw new TypeError('invalid condition leaf');
+    pathLiteral(condition.path);
+    if (condition.flags !== undefined && typeof condition.flags !== 'string') throw new TypeError('condition flags must be a string');
+    if (condition.op === 'regex') {
+      if (typeof condition.value !== 'string') throw new TypeError('regex pattern must be a string');
+      regexChecks.push({ pattern: condition.value, flags: condition.flags || '' });
+    } else if (condition.op === 'any' || condition.op === 'all') {
+      if (!condition.child) throw new TypeError(condition.op + ' requires a child');
+      validateCondition(condition.child, regexChecks);
+    } else if (!['exists', 'missing', 'null'].includes(condition.op)) {
+      if (!Object.prototype.hasOwnProperty.call(condition, 'value') || !isJsonValue(condition.value, new Set())) throw new TypeError('condition value must be JSON serializable');
+    }
+  }
+
+  function replacementLiteral(replacement) {
+    if (typeof replacement !== 'string') throw new TypeError('replacement must be a string');
+    if (replacement.includes('{{') || replacement.includes('}}')) throw new TypeError('replacement interpolation must use jq-style \\(.name) paths');
+    var result = '"';
+    var literal = '';
+    function flushLiteral() {
+      if (literal !== '') {
+        for (var literalPosition = 0; literalPosition < literal.length; literalPosition += 1) {
+          if (literal[literalPosition] === '\\') result += '\\';
+          else result += JSON.stringify(literal[literalPosition]).slice(1, -1);
+        }
+        literal = '';
+      }
+    }
+    function capturePath(body) {
+      var position = 0;
+      var path = '';
+      if (body[position] !== '.') throw new TypeError('replacement interpolation must be a named capture path');
+      path += '.';
+      position += 1;
+      while (position < body.length) {
+        var identifier = body.slice(position).match(/^[A-Za-z_][A-Za-z0-9_]*/);
+        if (identifier) {
+          path += identifier[0];
+          position += identifier[0].length;
+          continue;
+        }
+        if (body[position] !== '[') throw new TypeError('replacement interpolation must be a named capture path');
+        var end = position + 1;
+        var quoted = false;
+        var escaped = false;
+        for (; end < body.length; end += 1) {
+          var character = body[end];
+          if (quoted) {
+            if (escaped) escaped = false;
+            else if (character === '\\') escaped = true;
+            else if (character === '"') quoted = false;
+          } else if (character === '"') {
+            quoted = true;
+          } else if (character === ']') {
+            break;
+          }
+        }
+        if (end >= body.length || !quoted && body[position + 1] !== '"') throw new TypeError('replacement interpolation must use quoted capture fields');
+        var key;
+        try {
+          key = JSON.parse(body.slice(position + 1, end));
+        } catch (error) {
+          throw new TypeError('replacement interpolation must use quoted capture fields');
+        }
+        if (typeof key !== 'string') throw new TypeError('replacement interpolation must use quoted capture fields');
+        path += '[' + JSON.stringify(key) + ']';
+        position = end + 1;
+      }
+      return path;
+    }
+    for (var position = 0; position < replacement.length; position += 1) {
+      if (replacement[position] === '\\' && replacement[position + 1] === '\\') {
+        literal += '\\\\';
+        position += 1;
+        continue;
+      }
+      if (replacement[position] !== '\\' || replacement[position + 1] !== '(') {
+        literal += replacement[position];
+        continue;
+      }
+      flushLiteral();
+      var end = position + 2;
+      var interpolation = '';
+      var closed = false;
+      while (end < replacement.length) {
+        if (replacement[end] === ')') {
+          closed = true;
+          break;
+        }
+        interpolation += replacement[end];
+        end += 1;
+      }
+      if (!closed) throw new TypeError('replacement interpolation must be a named capture path');
+      result += '\\(' + capturePath(interpolation) + ')';
+      position = end;
+    }
+    flushLiteral();
+    return result + '"';
+  }
+
+  function validateStep(step, regexChecks) {
+    if (!step || typeof step !== 'object' || !STEP_OPS.has(step.op) || !['emit', 'update'].includes(step.mode)) throw new TypeError('invalid transformation step');
+    pathLiteral(step.path);
+    if (typeof step.pattern !== 'string' || typeof step.flags !== 'string') throw new TypeError('step pattern and flags must be strings');
+    regexChecks.push({ pattern: step.pattern, flags: step.flags });
+    if (step.op === 'sub' || step.op === 'gsub') {
+      if (typeof step.replacement !== 'string') throw new TypeError('replacement is required for sub and gsub');
+      replacementLiteral(step.replacement);
+    }
+    if ((step.op === 'match' || step.op === 'capture') && step.replacement !== undefined) throw new TypeError('replacement is not valid for this step');
+  }
+
+  function validateBuilder(builder) {
+    if (!builder || typeof builder !== 'object' || !builder.source || !['root', 'items'].includes(builder.source.kind)) throw new TypeError('invalid builder source');
+    pathLiteral(builder.source.path);
+    var regexChecks = [];
+    validateCondition(builder.condition, regexChecks);
+    if (!Array.isArray(builder.steps)) throw new TypeError('steps must be an array');
+    builder.steps.forEach(function (step) { validateStep(step, regexChecks); });
+    if (builder.projection !== null && !Array.isArray(builder.projection)) throw new TypeError('projection must be null or an array');
+    if (builder.projection) {
+      var aliases = new Set();
+      builder.projection.forEach(function (entry) {
+        if (!entry || typeof entry.name !== 'string' || entry.name.length === 0) throw new TypeError('projection aliases must be nonempty strings');
+        if (aliases.has(entry.name)) throw new TypeError('duplicate projection alias: ' + entry.name);
+        aliases.add(entry.name);
+        pathLiteral(entry.path);
+      });
+    }
+    return regexChecks;
+  }
+
+  function pathSource(path) {
+    return JSON.stringify(pathLiteral(path));
+  }
+
+  function hasExpr(path) { return '__jqb_has(.;' + pathSource(path) + ')'; }
+  function getExpr(path) { return '__jqb_get(.;' + pathSource(path) + ')'; }
+
+  function conditionExpr(condition) {
+    if (condition.kind === 'group') {
+      if (condition.op === 'not') return '((' + conditionExpr(condition.children[0]) + ') | not)';
+      if (condition.children.length === 0) return condition.op === 'and' ? 'true' : 'false';
+      return '(' + condition.children.map(conditionExpr).map(function (expr) { return '(' + expr + ')'; }).join(' ' + condition.op + ' ') + ')';
+    }
+    var path = condition.path;
+    var has = hasExpr(path);
+    var value = getExpr(path);
+    var op = condition.op;
+    if (op === 'exists') return '(' + has + ')';
+    if (op === 'missing') return '((' + has + ') | not)';
+    if (op === 'null') return '((' + has + ') and ((' + value + ') | type) == "null")';
+    if (op === 'any' || op === 'all') {
+      var child = conditionExpr(condition.child);
+      return '(' + value + ' as $__jqb_any_value | if ($__jqb_any_value | type) == "array" then ($__jqb_any_value | map(' + child + ') | ' + op + ') else false end)';
+    }
+    var literal = jsonLiteral(condition.value);
+    if (op === 'regex') return '(' + value + ' as $__jqb_value | if ($__jqb_value | type) == "string" and (' + has + ') then ($__jqb_value | test(' + literal + '; ' + JSON.stringify(condition.flags || '') + ')) else false end)';
+    if (op === 'type') return '(' + has + ' and ((' + value + ') | type) == ' + literal + ')';
+    if (op === 'startsWith' || op === 'endsWith') {
+      var fn = op === 'startsWith' ? 'startswith' : 'endswith';
+      return '(' + value + ' as $__jqb_value | if (' + has + ') and (($__jqb_value | type) == "string") and ((' + literal + ') | type) == "string" then ($__jqb_value | ' + fn + '(' + literal + ')) else false end)';
+    }
+    if (op === 'contains') return '(' + value + ' as $__jqb_value | if (' + has + ') and (($__jqb_value | type) == (' + literal + ' | type)) and (($__jqb_value | type) == "array" or ($__jqb_value | type) == "object" or ($__jqb_value | type) == "string") then ($__jqb_value | contains(' + literal + ')) else false end)';
+    if (['lt', 'le', 'gt', 'ge'].includes(op)) return '(' + value + ' as $__jqb_value | if (' + has + ') and (($__jqb_value | type) == (' + literal + ' | type)) and (($__jqb_value | type) == "number" or ($__jqb_value | type) == "string") then ($__jqb_value ' + ({ lt: '<', le: '<=', gt: '>', ge: '>=' }[op]) + ' ' + literal + ') else false end)';
+    return '(' + value + ' as $__jqb_value | if (' + has + ') and (($__jqb_value | type) == (' + literal + ' | type)) then ($__jqb_value ' + (op === 'eq' ? '==' : '!=') + ' ' + literal + ') else false end)';
+  }
+
+  function operationExpr(step) {
+    var target = getExpr(step.path);
+    var pattern = JSON.stringify(step.pattern);
+    var flags = JSON.stringify(step.flags);
+    if (step.op === 'match') return 'match(' + pattern + '; ' + flags + ')';
+    if (step.op === 'capture') return 'capture(' + pattern + '; ' + flags + ')';
+    return step.op + '(' + pattern + '; ' + replacementLiteral(step.replacement) + '; ' + flags + ')';
+  }
+
+  function stepExpr(step) {
+    var target = getExpr(step.path);
+    var op = operationExpr(step);
+    var transformed = '(' + target + ' | if type == "string" then ' + op + ' else error("transformation target must be a string") end)';
+    if (step.mode === 'emit') return transformed;
+    var path = pathSource(step.path);
+    return '. as $__jqb_record | [' + transformed + '] as $__jqb_values | if ($__jqb_values | length) == 0 then $__jqb_record elif ($__jqb_values | length) == 1 then ($__jqb_record | setpath(' + path + '; $__jqb_values[0])) else ($__jqb_record | setpath(' + path + '; $__jqb_values)) end';
+  }
+
+  function projectionExpr(projection) {
+    if (projection === null) return '.';
+    return '{' + projection.map(function (entry) {
+      var name = JSON.stringify(entry.name);
+      var path = pathSource(entry.path);
+      return name + ': (if __jqb_has(.;' + path + ') then __jqb_get(.;' + path + ') else null end)';
+    }).join(', ') + '}';
+  }
+
+  function compileBuilder(builder) {
+    var regexChecks = validateBuilder(builder);
+    var source = '__jqb_get(.;' + pathSource(builder.source.path) + ')';
+    if (builder.source.kind === 'items') source += ' | if type == "array" then .[] else empty end';
+    var filter = [
+      'def __jqb_has($v;$p): if ($p|length)==0 then true elif ($v|type)=="object" and ($p[0]|type)=="string" then (($v|has($p[0])) and __jqb_has($v[$p[0]];$p[1:])) elif ($v|type)=="array" and ($p[0]|type)=="number" and ($p[0]>=0) and ($p[0]<($v|length)) then __jqb_has($v[$p[0]];$p[1:]) else false end;',
+      'def __jqb_get($v;$p): if ($p|length)==0 then $v elif ($v|type)=="object" and ($p[0]|type)=="string" and ($v|has($p[0])) then __jqb_get($v[$p[0]];$p[1:]) elif ($v|type)=="array" and ($p[0]|type)=="number" and ($p[0]>=0) and ($p[0]<($v|length)) then __jqb_get($v[$p[0]];$p[1:]) else null end;',
+      '(' + source + ')',
+      '| select(' + conditionExpr(builder.condition) + ')'
+    ];
+    builder.steps.forEach(function (step) { filter.push('| ' + stepExpr(step)); });
+    filter.push('| ' + projectionExpr(builder.projection));
+    return { filter: filter.join('\n'), regexChecks: regexChecks };
+  }
+
+  function effectiveFilter(filter, collect) {
+    if (typeof filter !== 'string') throw new TypeError('filter must be a string');
+    return collect ? '[inputs | (' + filter + ')]' : 'inputs | (' + filter + ')';
+  }
+
+  root.JQCore = { normalizeInput: normalizeInput, suggestPaths: suggestPaths, compileBuilder: compileBuilder, effectiveFilter: effectiveFilter };
+})(typeof globalThis === 'object' ? globalThis : this);
+</script>
