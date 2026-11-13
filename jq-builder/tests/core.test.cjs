@@ -281,6 +281,27 @@ test('recipes reject unknown executable fields, unsupported versions, and pathol
   assert.throws(() => JQCore.importRecipe(JSON.stringify({ ...base, builder: { ...base.builder, condition: nested } })), (error) => error.code === 'INVALID_RECIPE');
 });
 
+test('recipe validation matches compiler semantics for type values and replacements', () => {
+  const state = {
+    inputText: '{}',
+    format: 'json',
+    builder: {
+      source: { kind: 'root', path: [] },
+      condition: { kind: 'leaf', path: [], op: 'type', value: { expected: 'object' } },
+      steps: [{ op: 'sub', path: ['name'], mode: 'emit', pattern: 'a', flags: '', replacement: 'literal' }],
+      projection: null
+    },
+    customFilter: '.', mode: 'builder', collect: false
+  };
+  assert.doesNotThrow(() => JQCore.compileBuilder(state.builder));
+  const text = JQCore.exportRecipe(state);
+  assert.equal(JSON.parse(text).builder.condition.value.expected, 'object');
+  assert.equal(JSON.stringify(JQCore.importRecipe(text).builder.condition.value), '{"expected":"object"}');
+  const invalid = JSON.parse(text);
+  invalid.builder.steps[0].replacement = '\\(.x + 1)';
+  assert.throws(() => JQCore.importRecipe(JSON.stringify(invalid)), (error) => error.code === 'INVALID_RECIPE' && /replacement interpolation/.test(error.message));
+});
+
 test('shellCommand quotes the exact effective filter and filename for POSIX execution', () => {
   const fs = require('node:fs');
   const os = require('node:os');

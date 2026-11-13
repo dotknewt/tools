@@ -541,7 +541,6 @@
     } else if (!['exists', 'missing', 'null'].includes(op)) {
       if (!Object.prototype.hasOwnProperty.call(condition, 'value')) throw recipeError('condition value is required');
       leaf.value = recipeJsonValue(condition.value, depth + 1, new Set());
-      if (op === 'type' && typeof leaf.value !== 'string') throw recipeError('type condition value must be a string');
     }
     return leaf;
   }
@@ -550,7 +549,10 @@
     recipeKeys(step, ['op', 'path', 'mode', 'pattern', 'flags'], ['replacement'], 'transformation step');
     if (!STEP_OPS.has(step.op) || !['emit', 'update'].includes(step.mode)) throw recipeError('invalid transformation step');
     var copy = { op: step.op, path: recipePath(step.path, 'step path'), mode: step.mode, pattern: recipeString(step.pattern, 'step pattern'), flags: recipeString(step.flags, 'step flags', 256) };
-    if (step.op === 'sub' || step.op === 'gsub') copy.replacement = recipeString(step.replacement, 'step replacement');
+    if (step.op === 'sub' || step.op === 'gsub') {
+      copy.replacement = recipeString(step.replacement, 'step replacement');
+      try { replacementLiteral(copy.replacement); } catch (error) { throw recipeError(error.message); }
+    }
     else if (step.replacement !== undefined) throw recipeError('replacement is not valid for this step');
     return copy;
   }
@@ -1012,7 +1014,7 @@
   $('download-result').addEventListener('click',()=>{renderExports();if($('download-result').disabled)return;const current=app.getState();const extension=current.collect?'json':'jsonl';downloadFile(`jq-result.${extension}`,currentResult.outputText,'application/json;charset=utf-8');});
   $('copy-results').addEventListener('click',async()=>{renderExports();if($('copy-results').disabled)return;await copyText(currentResult.outputText);});
   $('download-input').addEventListener('click',()=>{renderExports();if($('download-input').disabled)return;const current=app.getState();let content=current.inputText;if(current.format==='jsonc')content=JQCore.normalizeInput(content,'jsonc').text;else content=JQCore.normalizeInput(content,current.format).text;const extension=current.format==='jsonl'?'jsonl':'json';downloadFile(`jq-input.${extension}`,content,'application/json;charset=utf-8');});
-  $('download-recipe').addEventListener('click',()=>{try{const text=JQCore.exportRecipe(app.getState(),$('recipe-include-input').checked);downloadFile('jq-recipe.json',text,'application/json;charset=utf-8');$('recipe-warning').hidden=true;}catch(error){$('recipe-warning').hidden=false;$('recipe-warning').textContent=error.message;}});
+  $('download-recipe').addEventListener('click',()=>{try{const includeInput=$('recipe-include-input').checked;const visibleText=$('input-text').value;const visibleFormat=$('input-format').value;if(includeInput&&new TextEncoder().encode(visibleText).length>5*1024*1024)throw Error('The visible input exceeds the 5 MiB limit. Shorten it before including input in the recipe.');const recipeState=app.getState();recipeState.format=visibleFormat;if(includeInput)recipeState.inputText=visibleText;const text=JQCore.exportRecipe(recipeState,includeInput);downloadFile('jq-recipe.json',text,'application/json;charset=utf-8');$('recipe-warning').hidden=true;}catch(error){$('recipe-warning').hidden=false;$('recipe-warning').textContent=error.message;}});
   $('recipe-file').addEventListener('change',async()=>{const file=$('recipe-file').files[0];if(!file)return;try{const text=await file.text();const recipe=JQCore.importRecipe(text);const next=app.applyRecipe(recipe);$('recipe-warning').hidden=true;syncUIFromState(next);}catch(error){$('recipe-warning').hidden=false;$('recipe-warning').textContent=`Recipe was not imported: ${error.message}`;}});
   $('builder-mode').addEventListener('click',()=>setMode('builder'));$('custom-mode').addEventListener('click',()=>setMode('custom'));$('custom-filter').value=state.customFilter;$('custom-filter').addEventListener('input',()=>{app.setCustomFilter($('custom-filter').value);renderGenerated();});$('copy-generated').addEventListener('click',async()=>{const generated=builderFilter();if(builderError||generated===null)return;const s=app.getState();if(s.customFilter&&s.customFilter!=='.'&&s.customFilter!==generated&&!confirm('Replace your existing custom jq filter with the generated builder filter?'))return;app.setCustomFilter(generated);$('custom-filter').value=app.getState().customFilter;setMode('custom');});
   $('source-kind').addEventListener('change',()=>{builder.source.kind=$('source-kind').value;saveBuilder();refreshSuggestions();});$('source-path').value='[]';$('source-path').addEventListener('change',()=>{try{builder.source.path=parsePath($('source-path').value);pathErrors.delete('source');saveBuilder();refreshSuggestions();}catch(error){pathFailure(error,'source');}});$('source-suggest').addEventListener('click',()=>{const path=rootSuggestions.find((p)=>{let value=parsedSamples()[0];for(const part of p)value=value?.[part];return Array.isArray(value);});if(path){$('source-path').value=pathText(path);$('source-path').dispatchEvent(new Event('change'));}});
