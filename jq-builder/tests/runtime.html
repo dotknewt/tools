@@ -112,18 +112,36 @@
         source: { kind: 'root', path: [] },
         condition: { kind: 'leaf', path: ['a'], op: 'missing' }, steps: [], projection: null
       }, '{"a":null}\n{}', '{}');
-      await runGenerated('browser compiler applies any and all empty-array semantics', {
+      await runGenerated('browser compiler makes any empty array false', {
         source: { kind: 'root', path: [] },
-        condition: { kind: 'group', op: 'or', children: [
-          { kind: 'leaf', path: ['items'], op: 'any', child: { kind: 'leaf', path: [], op: 'eq', value: 1 } },
-          { kind: 'leaf', path: ['items'], op: 'all', child: { kind: 'leaf', path: [], op: 'eq', value: 1 } }
-        ] }, steps: [], projection: null
-      }, '{"items":[]}\n{"items":[1,2]}\n{"items":1}', '{"items":[]}\n{"items":[1,2]}');
-      await runGenerated('browser compiler rejects any and all non-arrays', {
+        condition: { kind: 'leaf', path: ['items'], op: 'any', child: { kind: 'leaf', path: [], op: 'eq', value: 1 } },
+        steps: [], projection: null
+      }, '{"items":[]}', '');
+      await runGenerated('browser compiler makes all empty array true', {
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: ['items'], op: 'all', child: { kind: 'leaf', path: [], op: 'eq', value: 1 } },
+        steps: [], projection: null
+      }, '{"items":[]}', '{"items":[]}');
+      await runGenerated('browser compiler makes any non-array false', {
         source: { kind: 'root', path: [] },
         condition: { kind: 'leaf', path: ['items'], op: 'any', child: { kind: 'leaf', path: [], op: 'eq', value: 1 } },
         steps: [], projection: null
       }, '{"items":1}', '');
+      await runGenerated('browser compiler makes all non-array false', {
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: ['items'], op: 'all', child: { kind: 'leaf', path: [], op: 'eq', value: 1 } },
+        steps: [], projection: null
+      }, '{"items":1}', '');
+      await runGenerated('browser compiler makes all mixed array false', {
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: ['items'], op: 'all', child: { kind: 'leaf', path: [], op: 'eq', value: 2 } },
+        steps: [], projection: null
+      }, '{"items":[1,2]}', '');
+      await runGenerated('browser compiler makes any mixed array true', {
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: ['items'], op: 'any', child: { kind: 'leaf', path: [], op: 'eq', value: 2 } },
+        steps: [], projection: null
+      }, '{"items":[1,2]}', '{"items":[1,2]}');
       await runGenerated('browser compiler selects nested source items', {
         source: { kind: 'items', path: ['groups', 0, 'items'] },
         condition: { kind: 'leaf', path: ['v'], op: 'eq', value: 2 }, steps: [], projection: null
