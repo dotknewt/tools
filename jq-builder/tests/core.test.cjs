@@ -203,18 +203,25 @@ test('effective collection wraps the stream once and JSONL collection is one arr
   assert.deepEqual(jq(normalized.text, JQCore.effectiveFilter('.', true)), [[1, 2]]);
 });
 
-test('replacement grammar only interpolates named captures and escapes literals', () => {
-  const compiled = JQCore.compileBuilder({
+test('replacement grammar serializes literal chunks and interpolates safe capture paths', () => {
+  const compile = (replacement) => JQCore.compileBuilder({
     source: { kind: 'root', path: [] }, condition: { kind: 'group', op: 'and', children: [] },
-    steps: [{ op: 'sub', path: [], mode: 'emit', pattern: '(?<x>a)', flags: '', replacement: '\\(.x)-\\\\(.x)' }], projection: null
+    steps: [{ op: 'sub', path: [], mode: 'emit', pattern: '(?<x>a)', flags: '', replacement }], projection: null
   });
-  assert.deepEqual(runCompiled('"a"', compiled), ['a-\\(.x)']);
+  const cases = [
+    ['\\(.x)-\\\\(.x)', 'a-\\\\(.x)'],
+    ['" | .', '" | .'],
+    ['\\"', '\\"'],
+    ['line\nnext', 'line\nnext'],
+    ['line' + '\\' + 'nnext', 'line' + '\\' + 'nnext'],
+    ['trailing\\', 'trailing\\'],
+    ['{{x}}', '{{x}}']
+  ];
+  for (const [replacement, expected] of cases) assert.deepEqual(runCompiled('"a"', compile(replacement)), [expected]);
+  assert.deepEqual(runCompiled('"a"', compile('\\(.["x"])')), ['a']);
+  assert.deepEqual(runCompiled('"a"', compile('\\(.["x)"])')), ['null']);
   assert.throws(() => JQCore.compileBuilder({
     source: { kind: 'root', path: [] }, condition: { kind: 'group', op: 'and', children: [] },
     steps: [{ op: 'sub', path: [], mode: 'emit', pattern: '(?<x>a)', flags: '', replacement: '\\(.x + 1)' }], projection: null
   }), /replacement interpolation/);
-  assert.throws(() => JQCore.compileBuilder({
-    source: { kind: 'root', path: [] }, condition: { kind: 'group', op: 'and', children: [] },
-    steps: [{ op: 'sub', path: [], mode: 'emit', pattern: '(?<x>a)', flags: '', replacement: '{{x}}' }], projection: null
-  }), /jq-style/);
 });

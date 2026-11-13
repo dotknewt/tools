@@ -93,6 +93,65 @@
       });
       check('browser compiler orders same-type strings only', ordering.status === 'ok' && ordering.outputText === '{"name":"a"}', JSON.stringify(ordering));
 
+      async function runGenerated(name, builder, input, expected, format) {
+        const compiled = core.compileBuilder(builder);
+        const normalized = core.normalizeInput(input, format || 'jsonl');
+        const result = await run({
+          type: 'run', input: normalized.text,
+          filter: core.effectiveFilter(compiled.filter, false),
+          regexChecks: compiled.regexChecks, limits
+        });
+        check(name, result.status === 'ok' && result.outputText === expected, JSON.stringify(result));
+      }
+
+      await runGenerated('browser compiler distinguishes present null from missing', {
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: ['a'], op: 'null' }, steps: [], projection: null
+      }, '{"a":null}\n{}', '{"a":null}');
+      await runGenerated('browser compiler selects missing paths only', {
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: ['a'], op: 'missing' }, steps: [], projection: null
+      }, '{"a":null}\n{}', '{}');
+      await runGenerated('browser compiler applies any and all empty-array semantics', {
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'group', op: 'or', children: [
+          { kind: 'leaf', path: ['items'], op: 'any', child: { kind: 'leaf', path: [], op: 'eq', value: 1 } },
+          { kind: 'leaf', path: ['items'], op: 'all', child: { kind: 'leaf', path: [], op: 'eq', value: 1 } }
+        ] }, steps: [], projection: null
+      }, '{"items":[]}\n{"items":[1,2]}\n{"items":1}', '{"items":[]}\n{"items":[1,2]}');
+      await runGenerated('browser compiler rejects any and all non-arrays', {
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: ['items'], op: 'any', child: { kind: 'leaf', path: [], op: 'eq', value: 1 } },
+        steps: [], projection: null
+      }, '{"items":1}', '');
+      await runGenerated('browser compiler selects nested source items', {
+        source: { kind: 'items', path: ['groups', 0, 'items'] },
+        condition: { kind: 'leaf', path: ['v'], op: 'eq', value: 2 }, steps: [], projection: null
+      }, '{"groups":[{"items":[{"v":1},{"v":2}]}]}', '{"v":2}');
+      await runGenerated('browser compiler preserves zero-match capture updates', {
+        source: { kind: 'root', path: [] }, condition: { kind: 'group', op: 'and', children: [] },
+        steps: [{ op: 'capture', path: ['text'], mode: 'update', pattern: '(?<x>a)', flags: '' }], projection: null
+      }, '{"text":"zzz"}', '{"text":"zzz"}');
+      await runGenerated('browser compiler replaces one capture update', {
+        source: { kind: 'root', path: [] }, condition: { kind: 'group', op: 'and', children: [] },
+        steps: [{ op: 'capture', path: ['text'], mode: 'update', pattern: '(?<x>a)', flags: '' }], projection: null
+      }, '{"text":"a"}', '{"text":{"x":"a"}}');
+      await runGenerated('browser compiler feeds emitted values into ordered steps', {
+        source: { kind: 'root', path: [] }, condition: { kind: 'group', op: 'and', children: [] },
+        steps: [
+          { op: 'capture', path: ['text'], mode: 'emit', pattern: '(?<x>a)', flags: '' },
+          { op: 'sub', path: ['x'], mode: 'update', pattern: 'a', flags: '', replacement: 'z' }
+        ], projection: null
+      }, '{"text":"a"}', '{"x":"z"}');
+      await runGenerated('browser compiler projects missing paths as null', {
+        source: { kind: 'root', path: [] }, condition: { kind: 'group', op: 'and', children: [] }, steps: [],
+        projection: [{ path: ['missing'], name: 'alias' }]
+      }, '{}', '{"alias":null}');
+      await runGenerated('browser compiler runs generated replacement interpolation', {
+        source: { kind: 'root', path: [] }, condition: { kind: 'group', op: 'and', children: [] },
+        steps: [{ op: 'sub', path: [], mode: 'emit', pattern: '(?<x>a)', flags: '', replacement: '\\(.x)-literal' }], projection: null
+      }, '"a"', '"a-literal"', 'json');
+
       const captureBuilder = core.compileBuilder({
         source: { kind: 'root', path: [] },
         condition: { kind: 'group', op: 'and', children: [] },

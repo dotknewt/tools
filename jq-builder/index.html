@@ -211,15 +211,11 @@
 
   function replacementLiteral(replacement) {
     if (typeof replacement !== 'string') throw new TypeError('replacement must be a string');
-    if (replacement.includes('{{') || replacement.includes('}}')) throw new TypeError('replacement interpolation must use jq-style \\(.name) paths');
-    var result = '"';
+    var parts = [];
     var literal = '';
     function flushLiteral() {
       if (literal !== '') {
-        for (var literalPosition = 0; literalPosition < literal.length; literalPosition += 1) {
-          if (literal[literalPosition] === '\\') result += '\\';
-          else result += JSON.stringify(literal[literalPosition]).slice(1, -1);
-        }
+        parts.push(JSON.stringify(literal));
         literal = '';
       }
     }
@@ -279,20 +275,38 @@
       var end = position + 2;
       var interpolation = '';
       var closed = false;
+      var quoted = false;
+      var escaped = false;
       while (end < replacement.length) {
-        if (replacement[end] === ')') {
+        var character = replacement[end];
+        if (quoted) {
+          interpolation += character;
+          if (escaped) escaped = false;
+          else if (character === '\\') escaped = true;
+          else if (character === '"') quoted = false;
+          end += 1;
+          continue;
+        }
+        if (character === '"') {
+          quoted = true;
+          interpolation += character;
+          end += 1;
+          continue;
+        }
+        if (character === ')') {
           closed = true;
           break;
         }
-        interpolation += replacement[end];
+        interpolation += character;
         end += 1;
       }
       if (!closed) throw new TypeError('replacement interpolation must be a named capture path');
-      result += '\\(' + capturePath(interpolation) + ')';
+      parts.push('"\\(' + capturePath(interpolation) + ')"');
       position = end;
     }
     flushLiteral();
-    return result + '"';
+    if (parts.length === 0) return '""';
+    return parts.length === 1 ? parts[0] : '(' + parts.join(' + ') + ')';
   }
 
   function validateStep(step, regexChecks) {
