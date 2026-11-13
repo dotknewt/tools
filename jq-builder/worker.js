@@ -5,6 +5,7 @@ const DEFAULT_LIMITS = {
   outputBytes: 1048576,
   outputValues: 1000
 };
+const MAX_ERROR_BYTES = 4096;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const jqReady = loadJq();
@@ -20,7 +21,9 @@ function reply(request, result) {
 }
 
 function errorResult(stage, message, outputText = '', valueCount = 0) {
-  return { status: 'error', outputText, valueCount, error: { stage, message } };
+  const bytes = textEncoder.encode(String(message).trim());
+  const boundedMessage = textDecoder.decode(bytes.slice(0, MAX_ERROR_BYTES));
+  return { status: 'error', outputText, valueCount, error: { stage, message: boundedMessage } };
 }
 
 function limitValues(outputText, outputBytes, outputValues) {
@@ -77,7 +80,7 @@ async function handle(request) {
       return;
     }
     const checked = jq.raw('', regexQuery(check.pattern, check.flags), ['-n', '-c']);
-    if (checked.exitCode !== 0 || checked.stderr !== '') {
+    if (checked.exitCode !== 0) {
       const message = (checked.stderr || checked.stdout || 'invalid regular expression').trim();
       reply(request, errorResult('regex', message));
       return;
@@ -85,9 +88,10 @@ async function handle(request) {
   }
 
   const result = jq.raw(request.input, request.filter, ['-n', '-c']);
-  if (result.exitCode !== 0 || result.stderr !== '') {
+  if (result.exitCode !== 0) {
     const message = (result.stderr || result.stdout || 'jq execution failed').trim();
-    reply(request, errorResult('filter', message, result.stdout || '', 0));
+    const preview = limitValues(result.stdout || '', limits.outputBytes, limits.outputValues);
+    reply(request, errorResult('filter', message, preview.outputText, preview.valueCount));
     return;
   }
   reply(request, limitValues(result.stdout, limits.outputBytes, limits.outputValues));

@@ -65,6 +65,15 @@
       check('replacement interpolation works', regex.status === 'ok' && regex.outputText.includes('"a-abc"'), regex.outputText);
       check('regex flags work', regex.status === 'ok' && regex.outputText.endsWith('true]]'), regex.outputText);
 
+      const stderrSuccess = await run({
+        type: 'run',
+        input: '1\n',
+        filter: 'inputs | debug',
+        regexChecks: [],
+        limits: { inputBytes: 5242880, outputBytes: 1048576, outputValues: 1000 }
+      });
+      check('successful jq stderr does not fail the run', stderrSuccess.status === 'ok' && stderrSuccess.outputText === '1', JSON.stringify(stderrSuccess));
+
       const invalid = await run({
         type: 'run',
         input: JSON.stringify('abc'),
@@ -92,6 +101,24 @@
       });
       check('inputs accepts an empty stream', empty.status === 'ok' && empty.outputText === '[]', JSON.stringify(empty));
 
+      const utf8 = await run({
+        type: 'run',
+        input: JSON.stringify('\u00e9'),
+        filter: 'inputs',
+        regexChecks: [],
+        limits: { inputBytes: 4, outputBytes: 4, outputValues: 1000 }
+      });
+      check('UTF-8 input and output use byte limits', utf8.status === 'ok' && utf8.outputText === '"\u00e9"' && new TextEncoder().encode(utf8.outputText).byteLength === 4, JSON.stringify(utf8));
+
+      const byteCapped = await run({
+        type: 'run',
+        input: '1\n22\n',
+        filter: 'inputs',
+        regexChecks: [],
+        limits: { inputBytes: 5242880, outputBytes: 3, outputValues: 1000 }
+      });
+      check('output byte cap truncates UTF-8 output', byteCapped.status === 'truncated' && byteCapped.outputText === '1' && new TextEncoder().encode(byteCapped.outputText).byteLength <= 3, JSON.stringify(byteCapped));
+
       const capped = await run({
         type: 'run',
         input: '{"n":1}\n{"n":2}\n',
@@ -100,6 +127,15 @@
         limits: { inputBytes: 5242880, outputBytes: 1048576, outputValues: 1 }
       });
       check('output value cap labels buffered truncation', capped.status === 'truncated' && capped.outputText === '1' && capped.valueCount === 1, JSON.stringify(capped));
+
+      const errorAfterOutput = await run({
+        type: 'run',
+        input: '1\n2\n3\n',
+        filter: 'inputs, error(("x" * 10000))',
+        regexChecks: [],
+        limits: { inputBytes: 5242880, outputBytes: 3, outputValues: 2 }
+      });
+      check('error after output returns capped incomplete preview', errorAfterOutput.status === 'error' && errorAfterOutput.outputText === '1\n2' && errorAfterOutput.valueCount === 2 && new TextEncoder().encode(errorAfterOutput.outputText).byteLength <= 3 && errorAfterOutput.error && new TextEncoder().encode(errorAfterOutput.error.message).byteLength <= 4096, JSON.stringify(errorAfterOutput));
     } catch (error) {
       check('worker protocol completes', false, String(error));
     } finally {
