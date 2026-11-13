@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to AGENTS when working with code in this repository.
 
 ## What this repo is
 
@@ -112,3 +112,17 @@ ufw firewall rule builder and explainer, two tabs. **Build:** form (action allow
 ## Tool naming convention
 
 Config/file generator tools use the prefix `generate-<name>/` (e.g. `generate-ubuntu-autoinstall/`). Visualizers and interactive tools use a plain descriptive name (e.g. `diamond-model/`, `mind-map/`).
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues. Before issue operations, read `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the five canonical triage labels. Before triaging, read `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout. Before exploring domain concepts or architecture decisions, read `docs/agents/domain.md`.
