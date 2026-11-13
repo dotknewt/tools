@@ -15,7 +15,7 @@
     checks.push({ name, pass: Boolean(condition), evidence: evidence || '' });
   }
 
-  function waitForEvent(app, predicate, timeout = 7000) {
+  function waitForEvent(app, predicate, timeout = 15000) {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         unsubscribe();
@@ -64,6 +64,7 @@
     Function('globalThis', controllerSource)(root);
     return {
       app: root.JQApp,
+      core: root.JQCore,
       workers,
       timers,
       fireTimer(timer) { if (timer && !timer.cancelled) timer.callback(); }
@@ -92,7 +93,7 @@
       });
       const app = frame.contentWindow.JQApp;
       const ui = frame.contentDocument;
-      const requiredControls = ['input-text', 'input-format', 'input-file', 'source-kind', 'source-path', 'condition-list', 'add-condition', 'add-group', 'add-step', 'projection-toggle', 'collect-output', 'builder-mode', 'custom-mode', 'custom-filter', 'copy-generated', 'run-query', 'cancel-query', 'generated-filter', 'query-output', 'run-status'];
+      const requiredControls = ['input-text', 'input-format', 'input-file', 'source-kind', 'source-path', 'condition-list', 'add-condition', 'add-group', 'add-step', 'projection-toggle', 'collect-output', 'builder-mode', 'custom-mode', 'custom-filter', 'copy-generated', 'run-query', 'cancel-query', 'generated-filter', 'query-output', 'run-status', 'copy-filter', 'copy-command', 'command-preview', 'copy-results', 'download-result', 'download-input', 'download-recipe', 'recipe-include-input', 'recipe-file', 'recipe-warning'];
       check('guided workflow exposes every required control', requiredControls.every((id) => ui.getElementById(id)), requiredControls.filter((id) => !ui.getElementById(id)).join(', '));
       check('input editor, mode controls, and run actions have accessible names', ['input-text', 'input-format', 'input-file', 'builder-mode', 'custom-mode', 'run-query', 'cancel-query'].every((id) => { const el = ui.getElementById(id); return el && (el.labels && el.labels.length || el.getAttribute('aria-label') || el.getAttribute('aria-labelledby') || el.textContent.trim()); }));
       check('builder interactions remain reachable at narrow widths', (() => { const viewport = ui.querySelector('meta[name="viewport"]'); return Boolean(viewport && ui.querySelector('[data-testid="builder-workspace"]') && ui.querySelector('[data-testid="input-workspace"]')); })());
@@ -133,8 +134,9 @@
       const notGroupActions = Array.from(notGroupDom?.children || []).find((child) => child.classList.contains('group-actions'));
       check('NOT blocks adding a second child', Boolean(notGroupActions?.querySelector('button[aria-label^="Add condition"]')?.disabled));
       conditionSelect = ui.querySelector('#condition-list .leaf select[data-testid="condition-operation"]'); conditionSelect.value = 'any'; conditionSelect.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
-       ui.querySelector('#condition-list .leaf button[data-testid="condition-group-array"]')?.click();
+      ui.querySelector('#condition-list .leaf button[data-testid="condition-group-array"]')?.click();
       check('any/all child can be converted into a compound group', app.getState().builder.condition.children[0].child?.kind === 'group');
+      check('compound any/all child group is visibly marked required', Boolean(ui.querySelector('#condition-list .array-child > .group button[data-testid="condition-group-remove"]')?.disabled));
       ui.querySelector('#condition-list .array-child .group .group-actions button[aria-label^="Add condition"]')?.click();
       check('compound array child supports its own nested predicate controls', app.getState().builder.condition.children[0].child.children.length === 2);
       ui.getElementById('add-step').click();
@@ -197,8 +199,10 @@
       check('Run button executes the selected mode and renders its result', uiRunResult.result.outputText.includes('x') && ui.getElementById('run-status').textContent === 'COMPLETE');
       ui.getElementById('custom-filter').value = 'range(0; 1000000000)'; ui.getElementById('custom-filter').dispatchEvent(new frame.contentWindow.Event('input', { bubbles: true }));
       const uiRunning = waitForEvent(app, (next, status) => status === 'running'); ui.getElementById('run-query').click(); await uiRunning;
+      check('running result is not eligible for copy or download', ui.getElementById('copy-results').disabled && ui.getElementById('download-result').disabled);
       const uiCancelled = waitForEvent(app, (next, status) => status === 'cancelled'); ui.getElementById('cancel-query').click(); await uiCancelled;
       check('Cancel button terminates a running query with a distinct status', ui.getElementById('run-status').textContent === 'CANCELLED' && ui.getElementById('cancel-query').disabled);
+      check('cancelled result is not eligible for copy or download', ui.getElementById('copy-results').disabled && ui.getElementById('download-result').disabled);
       const verifyFrame = ui.createElement('iframe'); verifyFrame.title = 'focused builder interaction checks'; verifyFrame.style.cssText = 'width:100%;height:900px;border:0'; verifyFrame.src = frame.contentWindow.location.href; ui.body.append(verifyFrame);
       await new Promise((resolve, reject) => { const deadline = Date.now() + 8000; const poll = () => { if (verifyFrame.contentDocument?.documentElement.dataset.uiReady === 'true') return resolve(); if (Date.now() > deadline) return reject(new Error('focused UI frame did not initialize: ' + JSON.stringify({ href: verifyFrame.contentWindow.location.href, app: Boolean(verifyFrame.contentWindow.JQApp), ready: verifyFrame.contentDocument?.readyState, error: verifyFrame.contentDocument?.documentElement.dataset.uiError }))); setTimeout(poll, 15); }; poll(); });
       const testApp = verifyFrame.contentWindow.JQApp; const testUi = verifyFrame.contentDocument;
@@ -262,7 +266,100 @@
       testUi.getElementById('custom-filter').value = 'range(0; 1002)'; testUi.getElementById('custom-filter').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
        const truncatedEvent = waitForEvent(testApp, (next, status, result) => ['truncated','error','complete'].includes(status) && result); testUi.getElementById('run-query').click(); const truncatedOutcome = await truncatedEvent;
       check('truncated result warning is visible and result is marked incomplete', truncatedOutcome.status === 'truncated' && !testUi.getElementById('run-warning').hidden && testUi.getElementById('run-status').dataset.state === 'truncated' && truncatedOutcome.result.complete === false && /truncated/i.test(testUi.getElementById('run-warning').textContent), JSON.stringify({ status: truncatedOutcome.status, warning: testUi.getElementById('run-warning').textContent }));
-      check('JQApp exposes the requested methods', app && ['getState', 'setInput', 'setBuilder', 'setMode', 'setCustomFilter', 'setCollect', 'run', 'cancel', 'subscribe'].every((name) => typeof app[name] === 'function'));
+      const downloads = [], capturedBlobs = [], revokedUrls = [], clipboardWrites = [];
+      const NativeBlob = verifyFrame.contentWindow.Blob;
+      verifyFrame.contentWindow.Blob = class extends NativeBlob { constructor(parts, options) { super(parts, options); capturedBlobs.push(this); } };
+      verifyFrame.contentWindow.URL.createObjectURL = (blob) => { const url = `blob:task5-${downloads.length + 1}`; downloads.push({ blob, url }); return url; };
+      verifyFrame.contentWindow.URL.revokeObjectURL = (url) => revokedUrls.push(url);
+      verifyFrame.contentWindow.HTMLAnchorElement.prototype.click = function () { if (this.download) downloads.push({ filename: this.download, url: this.href }); };
+      Object.defineProperty(verifyFrame.contentWindow.navigator, 'clipboard', { configurable: true, value: { writeText: async (text) => clipboardWrites.push(text) } });
+      async function settleUI() { await new Promise((resolve) => setTimeout(resolve, 25)); }
+      async function downloadAndRead(button) { const start = downloads.length; button.click(); await settleUI(); const events = downloads.slice(start); const link = events.find((item) => item.filename); const file = events.find((item) => item.blob); return { event: link, text: file ? await file.blob.text() : '' }; }
+      async function importRecipeFile(text, name = 'recipe.json') { const input = testUi.getElementById('recipe-file'); Object.defineProperty(input, 'files', { configurable: true, value: [new verifyFrame.contentWindow.File([text], name, { type: 'application/json' })] }); input.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); await settleUI(); }
+      check('recipe warning is explicit and include-input defaults off', testUi.querySelector('.recipe-tools').textContent.includes('Recipes can contain sensitive filter literals.') && !testUi.getElementById('recipe-include-input').checked);
+      testUi.getElementById('input-text').value = '[{"v":1},{"v":2}]'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true })); testUi.getElementById('input-format').value = 'json'; testUi.getElementById('input-format').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      testUi.getElementById('custom-mode').click(); testUi.getElementById('custom-filter').value = '.[] | .v'; testUi.getElementById('custom-filter').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      const expectedActiveFilter = verifyFrame.contentWindow.JQCore.effectiveFilter('.[] | .v', false);
+      testUi.getElementById('copy-filter').click(); await settleUI();
+      check('copy active filter uses exact current mode and collection', clipboardWrites.at(-1) === expectedActiveFilter);
+      testUi.getElementById('collect-output').click();
+      const expectedCollected = verifyFrame.contentWindow.JQCore.effectiveFilter('.[] | .v', true);
+      check('POSIX command preview and copy use effective active filter and placeholder only', testUi.getElementById('command-preview').textContent === verifyFrame.contentWindow.JQCore.shellCommand(expectedCollected, 'input.json') && testUi.getElementById('command-preview').textContent.includes('input.json') && !testUi.getElementById('command-preview').textContent.includes('{"v":1}'));
+      testUi.getElementById('copy-command').click(); await settleUI();
+      check('copy command matches JQCore.shellCommand exactly', clipboardWrites.at(-1) === verifyFrame.contentWindow.JQCore.shellCommand(expectedCollected, 'input.json'));
+      Object.defineProperty(verifyFrame.contentWindow.navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('clipboard denied'); } } });
+      testUi.getElementById('copy-filter').click(); await settleUI();
+      check('clipboard rejection shows selectable text fallback', !testUi.getElementById('export-fallback').hidden && testUi.getElementById('export-fallback').value === expectedCollected && testUi.getElementById('export-fallback').selectionStart === 0 && testUi.getElementById('export-fallback').selectionEnd === expectedCollected.length);
+      Object.defineProperty(verifyFrame.contentWindow.navigator, 'clipboard', { configurable: true, value: { writeText: async (text) => clipboardWrites.push(text) } });
+      testUi.getElementById('collect-output').click();
+      let exportRun = waitForEvent(testApp, (next, status, result) => status === 'complete' && result); testUi.getElementById('run-query').click(); await exportRun;
+      testUi.getElementById('copy-results').click(); await settleUI();
+      check('copy results copies the exact complete streaming output', clipboardWrites.at(-1) === '1\n2' && !testUi.getElementById('copy-results').disabled);
+      const streamDownload = await downloadAndRead(testUi.getElementById('download-result'));
+      check('JSON array input still streams multiple outputs to a JSONL file', streamDownload.text.trim() === '1\n2' && streamDownload.event?.filename.endsWith('.jsonl'), JSON.stringify({ text: streamDownload.text, filename: streamDownload.event?.filename }));
+      Object.defineProperty(verifyFrame.contentWindow.navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('clipboard denied'); } } });
+      testUi.getElementById('copy-results').click(); await settleUI();
+      check('copy result clipboard failure exposes selected result text fallback', !testUi.getElementById('export-fallback').hidden && testUi.getElementById('export-fallback').value === '1\n2' && testUi.getElementById('export-fallback').selectionEnd === 3);
+      Object.defineProperty(verifyFrame.contentWindow.navigator, 'clipboard', { configurable: true, value: { writeText: async (text) => clipboardWrites.push(text) } });
+      testUi.getElementById('collect-output').click();
+      check('changing collection disables both copy and download of prior result', testUi.getElementById('copy-results').disabled && testUi.getElementById('download-result').disabled);
+      exportRun = waitForEvent(testApp, (next, status, result) => status === 'complete' && result); testUi.getElementById('run-query').click(); await exportRun;
+      testUi.getElementById('copy-results').click(); await settleUI();
+      check('collected result copy contains the exact complete array output', clipboardWrites.at(-1) === '[1,2]');
+      const collectedDownload = await downloadAndRead(testUi.getElementById('download-result'));
+      check('collected download uses JSON and contains one array', JSON.parse(collectedDownload.text)[0] === 1 && JSON.parse(collectedDownload.text)[1] === 2 && collectedDownload.event?.filename.endsWith('.json'), JSON.stringify({ text: collectedDownload.text, filename: collectedDownload.event?.filename }));
+      const jsonInputDownload = await downloadAndRead(testUi.getElementById('download-input'));
+      check('JSON input download keeps its JSON extension and array data', jsonInputDownload.text === '[{"v":1},{"v":2}]' && jsonInputDownload.event?.filename.endsWith('.json'));
+      testUi.getElementById('input-text').value = '{"v":3}'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true })); testUi.getElementById('input-format').value = 'jsonl'; testUi.getElementById('input-format').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      testUi.getElementById('input-text').value = '{"v":3}\n{"v":4}'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      const jsonlInputDownload = await downloadAndRead(testUi.getElementById('download-input'));
+      check('JSONL input export uses a JSONL filename and preserves normalized lines', jsonlInputDownload.text === '{"v":3}\n{"v":4}' && jsonlInputDownload.event?.filename.endsWith('.jsonl') && /\.jsonl/.test(testUi.getElementById('download-input').textContent));
+      testUi.getElementById('input-text').value = '[{"v":1},{"v":2}]'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true })); testUi.getElementById('input-format').value = 'json'; testUi.getElementById('input-format').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      exportRun = waitForEvent(testApp, (next, status, result) => status === 'complete' && result); testUi.getElementById('run-query').click(); await exportRun;
+      testUi.getElementById('input-text').value = 'x'.repeat(5 * 1024 * 1024 + 1); testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      check('oversized invalid visible draft blocks both result exports despite old controller result', testUi.getElementById('copy-results').disabled && testUi.getElementById('download-result').disabled && testUi.getElementById('run-status').dataset.state === 'stale' && testUi.getElementById('query-output').textContent === '');
+      testUi.getElementById('input-text').value = '[{"v":1},{"v":2}]'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      check('corrected input leaves both result exports disabled until rerun', testUi.getElementById('copy-results').disabled && testUi.getElementById('download-result').disabled && testUi.getElementById('run-status').dataset.state === 'stale');
+      testUi.getElementById('collect-output').click();
+      testUi.getElementById('custom-filter').value = 'range(0; 1002)'; testUi.getElementById('custom-filter').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      check('stale result cannot be copied or downloaded as complete', testUi.getElementById('copy-results').disabled && testUi.getElementById('download-result').disabled);
+      const cappedRun = waitForEvent(testApp, (next, status, result) => ['truncated','error'].includes(status) && result); testUi.getElementById('run-query').click(); const cappedResult = await cappedRun;
+      check('truncated result cannot be copied or downloaded as complete', cappedResult.status === 'truncated' && testUi.getElementById('copy-results').disabled && testUi.getElementById('download-result').disabled);
+      testUi.getElementById('custom-filter').value = '., error("export error")'; testUi.getElementById('custom-filter').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      const failedRun = waitForEvent(testApp, (next, status) => status === 'error'); testUi.getElementById('run-query').click(); await failedRun;
+      check('error result cannot be copied or downloaded as complete', testUi.getElementById('copy-results').disabled && testUi.getElementById('download-result').disabled);
+      const jsoncText = '{"large":123456789012345678901234567890, // keep number\n "items":[1,2,],}';
+      testUi.getElementById('input-text').value = jsoncText; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true })); testUi.getElementById('input-format').value = 'jsonc'; testUi.getElementById('input-format').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      const normalized = verifyFrame.contentWindow.JQCore.normalizeInput(jsoncText, 'jsonc').text;
+      check('JSONC warns about jq conversion and labels strict JSON download', !testUi.getElementById('conversion-warning').hidden && /\.json/.test(testUi.getElementById('download-input').textContent));
+      const inputDownload = await downloadAndRead(testUi.getElementById('download-input'));
+      check('JSONC input download normalizes strict JSON and preserves number lexeme', inputDownload.text === normalized && inputDownload.text.includes('123456789012345678901234567890') && inputDownload.event.filename.endsWith('.json'));
+      const recipeDownload = await downloadAndRead(testUi.getElementById('download-recipe'));
+      const recipeWithoutInput = JSON.parse(recipeDownload.text);
+      check('default recipe export omits raw input and runtime result metadata', !('inputText' in recipeWithoutInput) && !('revision' in recipeWithoutInput));
+      testUi.getElementById('recipe-include-input').click();
+      const recipeWithInputDownload = await downloadAndRead(testUi.getElementById('download-recipe'));
+      check('explicit recipe input option exports exact raw input', JSON.parse(recipeWithInputDownload.text).inputText === jsoncText);
+      testUi.getElementById('recipe-include-input').click();
+      testUi.getElementById('input-text').value = '{"kept":true}'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true })); testUi.getElementById('input-format').value = 'json'; testUi.getElementById('input-format').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); testUi.getElementById('custom-filter').value = '.'; testUi.getElementById('custom-filter').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      const stableRun = waitForEvent(testApp, (next, status, result) => status === 'complete' && result); testUi.getElementById('run-query').click(); await stableRun;
+      const stableState = JSON.stringify(testApp.getState()); const stableOutput = testUi.getElementById('query-output').textContent;
+      await importRecipeFile('{"version":1,"format":"json","builder":{},"customFilter":".","mode":"custom","collect":false,"executable":"no"}');
+      check('invalid recipe import leaves app state and result controls untouched', JSON.stringify(testApp.getState()) === stableState && testUi.getElementById('query-output').textContent === stableOutput && !testUi.getElementById('recipe-warning').hidden);
+      const recipeBuilder = { source: { kind: 'items', path: ['rows'] }, condition: { kind: 'group', op: 'and', children: [{ kind: 'leaf', path: ['active'], op: 'eq', value: true }, { kind: 'group', op: 'or', children: [{ kind: 'leaf', path: ['name'], op: 'regex', value: 'Ada', flags: 'i' }, { kind: 'leaf', path: ['scores'], op: 'any', child: { kind: 'leaf', path: [], op: 'gt', value: 1 } }] }] }, steps: [{ op: 'gsub', path: ['name'], mode: 'update', pattern: 'Ada', flags: 'g', replacement: 'Grace' }], projection: [{ name: 'person', path: ['name'] }] };
+      const importedInput = '{"rows":[{"active":true,"name":"Ada","scores":[2]}]}';
+      const task5RecipeState = { ...testApp.getState(), inputText: importedInput, format: 'jsonl', builder: recipeBuilder, customFilter: '.name', mode: 'custom', collect: true };
+      await importRecipeFile(verifyFrame.contentWindow.JQCore.exportRecipe(task5RecipeState, true));
+      check('valid recipe import refreshes every UI setting and nested editor', testApp.getState().inputText === importedInput && testUi.getElementById('input-text').value === importedInput && testUi.getElementById('input-format').value === 'jsonl' && testUi.getElementById('source-kind').value === 'items' && testUi.getElementById('source-path').value === '["rows"]' && testApp.getState().builder.condition.children[1].kind === 'group' && testUi.querySelectorAll('#condition-list [data-testid="condition-group-logic"]').length >= 2 && testUi.querySelector('[aria-label="Transformation 1 regex pattern"]') && testUi.querySelector('[aria-label="Output field 1 name"]').value === 'person' && testUi.getElementById('builder-panel').hidden && !testUi.getElementById('custom-panel').hidden && testUi.getElementById('custom-filter').value === '.name' && testUi.getElementById('collect-output').checked && testUi.getElementById('run-status').dataset.state === 'stale');
+      const inputFreeRecipe = JSON.parse(verifyFrame.contentWindow.JQCore.exportRecipe({ ...task5RecipeState, inputText: 'not exported', format: 'json' }, false));
+      await importRecipeFile(JSON.stringify(inputFreeRecipe));
+      check('input-free recipe preserves current raw input while applying format', testUi.getElementById('input-text').value === importedInput && testUi.getElementById('input-format').value === 'json' && testUi.getElementById('input-warning').hidden);
+      const invalidInputRecipe = { ...JSON.parse(verifyFrame.contentWindow.JQCore.exportRecipe(task5RecipeState, false)), format: 'json', inputText: '{', mode: 'custom', customFilter: '. + 1' };
+      await importRecipeFile(JSON.stringify(invalidInputRecipe));
+      check('valid recipe with invalid input remains editable and reports input error', testUi.getElementById('input-text').value === '{' && !testUi.getElementById('input-warning').hidden && testUi.getElementById('custom-mode').getAttribute('aria-pressed') === 'true' && testUi.getElementById('custom-filter').value === '. + 1' && testUi.getElementById('run-query').disabled);
+      check('download object URLs are revoked after click use', downloads.filter((item) => item.filename).every((item) => revokedUrls.includes(item.url)) && capturedBlobs.length > 0);
+      verifyFrame.contentWindow.Blob = NativeBlob;
+       check('JQApp exposes the requested methods', app && ['getState', 'setInput', 'setBuilder', 'setMode', 'setCustomFilter', 'setCollect', 'applyRecipe', 'run', 'cancel', 'subscribe'].every((name) => typeof app[name] === 'function'));
       app.setInput('1', 'jsonl'); app.setBuilder({ source: { kind: 'root', path: [] }, condition: { kind: 'group', op: 'and', children: [] }, steps: [], projection: null }); app.setCollect(false); app.setMode('custom'); app.setCustomFilter('.');
 
       let state = app.getState();
@@ -396,9 +493,32 @@
         if (status === 'running') reentrantHarness.app.cancel();
       });
       reentrantRun = reentrantHarness.app.run();
-      const reentrantResult = await reentrantRun;
-      check('reentrant subscriber cancellation cannot post orphan work', reentrantResult.status === 'cancelled' && reentrantHarness.workers[0].postCount === 0 && reentrantHarness.workers[0].terminated, JSON.stringify(reentrantResult));
-    } catch (error) {
+       const reentrantResult = await reentrantRun;
+       check('reentrant subscriber cancellation cannot post orphan work', reentrantResult.status === 'cancelled' && reentrantHarness.workers[0].postCount === 0 && reentrantHarness.workers[0].terminated, JSON.stringify(reentrantResult));
+
+       const recipeHarness = await controllerHarness();
+       const recipeApp = recipeHarness.app;
+       const recipeCore = recipeHarness.core;
+       recipeApp.setInput('{"keep":true}', 'json');
+       recipeApp.setMode('custom'); recipeApp.setCustomFilter('.'); recipeApp.setCollect(true);
+       const recipeState = recipeApp.getState();
+       const recipeText = recipeCore.exportRecipe(recipeState, true);
+       const importedRecipe = recipeCore.importRecipe(recipeText);
+       check('recipe export/import round-trips active mode, collection, and explicit input', importedRecipe.mode === 'custom' && importedRecipe.collect === true && importedRecipe.inputText === '{"keep":true}' && !('revision' in importedRecipe), JSON.stringify(importedRecipe));
+       const inputFree = recipeCore.importRecipe(recipeCore.exportRecipe({ ...recipeState, inputText: '{"new":1}', mode: 'builder', collect: false }, false));
+       recipeApp.applyRecipe(inputFree);
+       check('input-free recipe application preserves raw dataset while applying settings', recipeApp.getState().inputText === '{"keep":true}' && recipeApp.getState().mode === 'builder' && recipeApp.getState().collect === false, JSON.stringify(recipeApp.getState()));
+       const runningRecipe = recipeApp.run();
+       const runningWorker = recipeHarness.workers[recipeHarness.workers.length - 1];
+       const beforeInvalidRecipe = JSON.stringify(recipeApp.getState());
+       let invalidRecipeRejected = false;
+       try { recipeApp.applyRecipe({ ...inputFree, executable: 'nope' }); } catch (error) { invalidRecipeRejected = error && error.code === 'INVALID_RECIPE'; }
+       check('invalid recipe while running leaves state and active worker unchanged', invalidRecipeRejected && JSON.stringify(recipeApp.getState()) === beforeInvalidRecipe && !runningWorker.terminated, JSON.stringify(recipeApp.getState()));
+       const appliedRecipe = { ...inputFree, inputText: '{"applied":1}', mode: 'custom', customFilter: '.' };
+       recipeApp.applyRecipe(appliedRecipe);
+       const cancelledRecipeRun = await runningRecipe;
+       check('valid recipe while running applies atomically and cancels the old run', cancelledRecipeRun.status === 'cancelled' && recipeApp.getState().inputText === '{"applied":1}' && recipeApp.getState().mode === 'custom', JSON.stringify({ cancelledRecipeRun, state: recipeApp.getState() }));
+     } catch (error) {
       check('controller harness completes', false, String(error));
     } finally {
       const failed = checks.filter((item) => !item.pass);

@@ -225,3 +225,77 @@ test('replacement grammar serializes literal chunks and interpolates safe captur
     steps: [{ op: 'sub', path: [], mode: 'emit', pattern: '(?<x>a)', flags: '', replacement: '\\(.x + 1)' }], projection: null
   }), /replacement interpolation/);
 });
+
+test('recipes round-trip configurable state without revision or result data', () => {
+  const state = {
+    inputText: '{"items":[1]}',
+    format: 'json',
+    builder: {
+      source: { kind: 'items', path: ['items'] },
+      condition: { kind: 'leaf', path: ['__proto__'], op: 'eq', value: 'safe' },
+      steps: [{ op: 'sub', path: ['name'], mode: 'update', pattern: 'a', flags: 'g', replacement: 'b' }],
+      projection: [{ path: ['name'], name: 'display' }]
+    },
+    customFilter: '. + 1',
+    mode: 'custom',
+    collect: true,
+    revision: 19,
+    result: { status: 'ok', outputText: 'secret' }
+  };
+  const withoutInput = JSON.parse(JQCore.exportRecipe(state));
+  assert.equal(withoutInput.inputText, undefined);
+  assert.equal(withoutInput.revision, undefined);
+  assert.equal(withoutInput.result, undefined);
+  assert.equal(JSON.stringify(JQCore.importRecipe(JSON.stringify(withoutInput))), JSON.stringify(withoutInput));
+
+  const withInput = JQCore.importRecipe(JQCore.exportRecipe(state, true));
+  assert.equal(withInput.inputText, state.inputText);
+  assert.equal(JSON.stringify(withInput.builder.condition.path), '["__proto__"]');
+});
+
+test('recipes reject unknown executable fields, unsupported versions, and pathological nesting', () => {
+  const base = {
+    version: 1,
+    format: 'jsonl',
+    builder: {
+      source: { kind: 'root', path: [] },
+      condition: { kind: 'group', op: 'and', children: [] },
+      steps: [],
+      projection: null
+    },
+    customFilter: '.',
+    mode: 'builder',
+    collect: false
+  };
+  assert.throws(() => JQCore.importRecipe(JSON.stringify({ ...base, version: 2 })), (error) => error.code === 'INVALID_RECIPE');
+  assert.throws(() => JQCore.importRecipe(JSON.stringify({ ...base, unknown: true })), (error) => error.code === 'INVALID_RECIPE');
+  const unsafeSource = { kind: 'root', path: [] };
+  Object.defineProperty(unsafeSource, '__proto__', { value: 'bad', enumerable: true });
+  assert.throws(() => JQCore.importRecipe(JSON.stringify({ ...base, builder: { ...base.builder, source: unsafeSource } })), (error) => error.code === 'INVALID_RECIPE');
+  const deep = { kind: 'group', op: 'and', children: [] };
+  let nested = deep;
+  for (let i = 0; i < 80; i += 1) {
+    const next = { kind: 'group', op: 'not', children: [nested] };
+    nested = next;
+  }
+  assert.throws(() => JQCore.importRecipe(JSON.stringify({ ...base, builder: { ...base.builder, condition: nested } })), (error) => error.code === 'INVALID_RECIPE');
+});
+
+test('shellCommand quotes the exact effective filter and filename for POSIX execution', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'jq-recipe-'));
+  const filename = "file 'with\n$ dollar\\slash.json";
+  const fullPath = path.join(temp, filename);
+  const key = "q'\n$\\";
+  fs.writeFileSync(fullPath, JSON.stringify({ [key]: 7 }) + '\n');
+  const filter = JQCore.effectiveFilter('.["q\'\\n$\\\\"]', false);
+  const command = JQCore.shellCommand(filter, fullPath);
+  const result = spawnSync('sh', ['-c', command], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(result.stdout.trim().split('\n').map(JSON.parse), [7]);
+  assert.match(command, /jq -n -c --/);
+  const collected = spawnSync('sh', ['-c', JQCore.shellCommand(JQCore.effectiveFilter('.', true), fullPath)], { encoding: 'utf8' });
+  assert.equal(collected.status, 0, collected.stderr);
+  assert.deepEqual(JSON.parse(collected.stdout), [{ [key]: 7 }]);
+});
