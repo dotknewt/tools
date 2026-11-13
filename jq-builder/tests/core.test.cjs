@@ -62,6 +62,29 @@ test('suggestPaths returns bounded literal paths with numeric indices', () => {
   assert.equal(result.truncated, false);
 });
 
+test('suggestPaths reports only unique candidates omitted by count or depth limits', () => {
+  const exact = {};
+  for (let i = 0; i < 500; i += 1) exact[`field${i}`] = i;
+  const exactResult = JQCore.suggestPaths([exact]);
+  assert.equal(exactResult.paths.length, 500);
+  assert.equal(exactResult.truncated, false);
+
+  const over = { ...exact, field500: 500 };
+  const overResult = JQCore.suggestPaths([over]);
+  assert.equal(overResult.paths.length, 500);
+  assert.equal(overResult.truncated, true);
+
+  let deep = 'leaf';
+  for (let i = 0; i < 33; i += 1) deep = { next: deep };
+  assert.equal(JQCore.suggestPaths([deep]).truncated, true);
+
+  const shared = {};
+  for (let i = 0; i < 500; i += 1) shared[`field${i}`] = i;
+  const sharedResult = JQCore.suggestPaths([shared, shared]);
+  assert.equal(sharedResult.paths.length, 500);
+  assert.equal(sharedResult.truncated, false);
+});
+
 test('structured paths are literal and indices stay numeric', () => {
   const builder = {
     source: { kind: 'root', path: [] },
@@ -224,6 +247,10 @@ test('replacement grammar serializes literal chunks and interpolates safe captur
     source: { kind: 'root', path: [] }, condition: { kind: 'group', op: 'and', children: [] },
     steps: [{ op: 'sub', path: [], mode: 'emit', pattern: '(?<x>a)', flags: '', replacement: '\\(.x + 1)' }], projection: null
   }), /replacement interpolation/);
+  assert.deepEqual(runCompiled('"a"', compile('\\(.first.second["quoted)"].third)')), ['null']);
+  for (const replacement of ['\\(.x | length)', '\\(.x.foo())']) {
+    assert.throws(() => compile(replacement), /replacement interpolation/);
+  }
 });
 
 test('recipes round-trip configurable state without revision or result data', () => {
@@ -233,7 +260,7 @@ test('recipes round-trip configurable state without revision or result data', ()
     builder: {
       source: { kind: 'items', path: ['items'] },
       condition: { kind: 'leaf', path: ['__proto__'], op: 'eq', value: 'safe' },
-      steps: [{ op: 'sub', path: ['name'], mode: 'update', pattern: 'a', flags: 'g', replacement: 'b' }],
+      steps: [{ op: 'sub', path: ['name'], mode: 'update', pattern: 'a', flags: 'g', replacement: '\\(.first.second["quoted)"].third)' }],
       projection: [{ path: ['name'], name: 'display' }]
     },
     customFilter: '. + 1',
@@ -251,6 +278,7 @@ test('recipes round-trip configurable state without revision or result data', ()
   const withInput = JQCore.importRecipe(JQCore.exportRecipe(state, true));
   assert.equal(withInput.inputText, state.inputText);
   assert.equal(JSON.stringify(withInput.builder.condition.path), '["__proto__"]');
+  assert.equal(withInput.builder.steps[0].replacement, state.builder.steps[0].replacement);
 });
 
 test('recipes reject unknown executable fields, unsupported versions, and pathological nesting', () => {

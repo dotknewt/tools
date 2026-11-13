@@ -68,4 +68,5 @@ The package API is synchronous after initialization and fully buffers each
 `raw` call. There is no incremental output callback or cancellation hook. The
 worker applies output caps only after jq returns, so the caps bound the
 reported result but do not provide a strict execution heap bound. Controller
-timeout termination remains necessary for Task 3.
+timeout and cancellation terminate the worker; a later run creates a fresh
+worker. These safeguards do not establish a strict execution heap bound.

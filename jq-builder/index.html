@@ -134,31 +134,38 @@
     var paths = [];
     var seen = new Set();
     var maxPaths = 500;
-    function add(path) {
-      var key = JSON.stringify(path);
-      if (seen.has(key) || paths.length >= maxPaths) return;
-      seen.add(key);
-      paths.push(path.slice());
-    }
+    var maxDepth = 32;
+    var truncated = false;
     function visit(value, path, depth) {
-      if (paths.length >= maxPaths || depth > 32 || value === null || typeof value !== 'object') return;
-      if (Array.isArray(value)) {
-        for (var i = 0; i < value.length && paths.length < maxPaths; i += 1) {
-          var arrayPath = path.concat(i);
-          add(arrayPath);
-          visit(value[i], arrayPath, depth + 1);
+      if (truncated || value === null || typeof value !== 'object') return;
+      var keys = Array.isArray(value) ? value.map(function (_, index) { return index; }) : Object.keys(value).sort();
+      if (depth >= maxDepth) {
+        for (var cutoffIndex = 0; cutoffIndex < keys.length; cutoffIndex += 1) {
+          if (!seen.has(JSON.stringify(path.concat(keys[cutoffIndex])))) {
+            truncated = true;
+            return;
+          }
         }
-      } else {
-        Object.keys(value).sort().forEach(function (key) {
-          if (paths.length >= maxPaths) return;
-          var objectPath = path.concat(key);
-          add(objectPath);
-          visit(value[key], objectPath, depth + 1);
-        });
+        return;
+      }
+      for (var i = 0; i < keys.length; i += 1) {
+        var key = keys[i];
+        var childPath = path.concat(key);
+        var childKey = JSON.stringify(childPath);
+        if (!seen.has(childKey)) {
+          if (paths.length >= maxPaths) {
+            truncated = true;
+            return;
+          }
+          seen.add(childKey);
+          paths.push(childPath);
+        }
+        visit(value[key], childPath, depth + 1);
+        if (truncated) return;
       }
     }
     samples.forEach(function (sample) { visit(sample, [], 0); });
-    return { paths: paths, truncated: paths.length >= maxPaths };
+    return { paths: paths, truncated: truncated };
   }
 
   function isJsonValue(value, seen) {
@@ -225,11 +232,20 @@
       if (body[position] !== '.') throw new TypeError('replacement interpolation must be a named capture path');
       path += '.';
       position += 1;
+      var needSegment = true;
       while (position < body.length) {
         var identifier = body.slice(position).match(/^[A-Za-z_][A-Za-z0-9_]*/);
-        if (identifier) {
+        if (needSegment && identifier) {
           path += identifier[0];
           position += identifier[0].length;
+          needSegment = false;
+          continue;
+        }
+        if (needSegment && body[position] !== '[') throw new TypeError('replacement interpolation must be a named capture path');
+        if (!needSegment && body[position] === '.') {
+          path += '.';
+          position += 1;
+          needSegment = true;
           continue;
         }
         if (body[position] !== '[') throw new TypeError('replacement interpolation must be a named capture path');
@@ -258,7 +274,9 @@
         if (typeof key !== 'string') throw new TypeError('replacement interpolation must use quoted capture fields');
         path += '[' + JSON.stringify(key) + ']';
         position = end + 1;
+        needSegment = false;
       }
+      if (needSegment) throw new TypeError('replacement interpolation must be a named capture path');
       return path;
     }
     for (var position = 0; position < replacement.length; position += 1) {
