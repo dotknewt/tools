@@ -427,3 +427,225 @@
   root.JQCore = { normalizeInput: normalizeInput, suggestPaths: suggestPaths, compileBuilder: compileBuilder, effectiveFilter: effectiveFilter };
 })(typeof globalThis === 'object' ? globalThis : this);
 </script>
+<script id="jq-controller">
+(function (root) {
+  'use strict';
+
+  var MAX_INPUT_BYTES = 5 * 1024 * 1024;
+  var RUN_TIMEOUT_MS = 5000;
+  var LIMITS = { inputBytes: MAX_INPUT_BYTES, outputBytes: 1024 * 1024, outputValues: 1000 };
+  var encoder = new TextEncoder();
+  var core = root.JQCore;
+  var state = {
+    inputText: '',
+    format: 'jsonl',
+    builder: {
+      source: { kind: 'root', path: [] },
+      condition: { kind: 'group', op: 'and', children: [] },
+      steps: [],
+      projection: null
+    },
+    customFilter: '.',
+    mode: 'builder',
+    collect: false,
+    revision: 0
+  };
+  var subscribers = [];
+  var active = null;
+  var nextRunId = 0;
+  var runStatus = 'idle';
+  var result = null;
+
+  function clone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function stateCopy() { return clone(state); }
+  function resultCopy(value) { return value === null ? null : clone(value); }
+
+  function notify() {
+    subscribers.slice().forEach(function (listener) {
+      try { listener(stateCopy(), runStatus, resultCopy(result)); } catch (error) { /* subscribers are isolated */ }
+    });
+  }
+
+  function makeError(stage, message, code) {
+    var error = new Error(message);
+    error.stage = stage;
+    if (code) error.code = code;
+    return error;
+  }
+
+  function metadata(status, fields) {
+    var value = Object.assign({ status: status, outputText: '', valueCount: 0, complete: status === 'ok' }, fields || {});
+    if (status !== 'ok') value.complete = false;
+    return value;
+  }
+
+  function terminate(worker) {
+    if (!worker) return;
+    try { worker.terminate(); } catch (error) { /* termination is best effort */ }
+  }
+
+  function settleActive(run, value, status) {
+    if (active !== run) return false;
+    clearTimeout(run.timer);
+    active = null;
+    terminate(run.worker);
+    result = value;
+    runStatus = status;
+    run.resolve(resultCopy(value));
+    notify();
+    return true;
+  }
+
+  function cancelActive(status, message) {
+    if (!active) return null;
+    var run = active;
+    var value = metadata(status, { error: { stage: status, message: message } });
+    settleActive(run, value, status);
+    return value;
+  }
+
+  function invalidate() {
+    if (active) cancelActive('cancelled', 'run superseded by a state change');
+    result = null;
+    runStatus = 'stale';
+    state.revision += 1;
+    notify();
+  }
+
+  function setStateField(name, value) {
+    state[name] = clone(value);
+    invalidate();
+    return stateCopy();
+  }
+
+  function workerFactory() {
+    return new Worker('worker.js', { type: 'module' });
+  }
+
+  function beginRunFailure(error) {
+    var value = metadata('error', {
+      error: { stage: error.stage || 'input', message: String(error.message || error) }
+    });
+    result = value;
+    runStatus = 'error';
+    notify();
+    return Promise.resolve(resultCopy(value));
+  }
+
+  function run() {
+    if (active) cancelActive('cancelled', 'run superseded by a newer run');
+    var snapshot = stateCopy();
+    var normalized;
+    var compiled;
+    var filter;
+    try {
+      if (encoder.encode(snapshot.inputText).byteLength > MAX_INPUT_BYTES) {
+        throw makeError('input', 'input exceeds 5242880 bytes', 'INPUT_TOO_LARGE');
+      }
+      normalized = core.normalizeInput(snapshot.inputText, snapshot.format);
+      if (snapshot.mode === 'builder') {
+        compiled = core.compileBuilder(snapshot.builder);
+        filter = compiled.filter;
+      } else if (snapshot.mode === 'custom') {
+        if (typeof snapshot.customFilter !== 'string') throw makeError('filter', 'custom filter must be a string');
+        compiled = { regexChecks: [] };
+        filter = snapshot.customFilter;
+      } else {
+        throw makeError('mode', 'unsupported execution mode');
+      }
+      filter = core.effectiveFilter(filter, snapshot.collect);
+    } catch (error) {
+      return beginRunFailure(error);
+    }
+
+    var runId = 'run-' + (++nextRunId);
+    var worker;
+    try {
+      worker = workerFactory();
+    } catch (error) {
+      return beginRunFailure(makeError('runtime', error.message || String(error)));
+    }
+    var promise = new Promise(function (resolve) {
+      var runRecord = { id: runId, worker: worker, resolve: resolve, timer: null };
+      active = runRecord;
+      result = null;
+      runStatus = 'running';
+      notify();
+      runRecord.timer = setTimeout(function () {
+        if (active !== runRecord) return;
+        settleActive(runRecord, metadata('timeout', { error: { stage: 'timeout', message: 'execution timed out after 5000 ms' } }), 'timeout');
+      }, RUN_TIMEOUT_MS);
+
+      worker.addEventListener('message', function (event) {
+        if (active !== runRecord) return;
+        var message = event.data || {};
+        if (message.type !== 'result' || message.id !== runId || message.revision !== snapshot.revision) return;
+        var value = metadata(message.status || 'error', {
+          outputText: typeof message.outputText === 'string' ? message.outputText : '',
+          valueCount: Number.isInteger(message.valueCount) ? message.valueCount : 0,
+          error: message.error ? clone(message.error) : undefined
+        });
+        settleActive(runRecord, value, message.status === 'ok' ? 'complete' : message.status);
+      });
+      worker.addEventListener('error', function (event) {
+        if (active !== runRecord) return;
+        settleActive(runRecord, metadata('error', { error: { stage: 'runtime', message: event.message || 'worker failed' } }), 'error');
+      });
+      worker.postMessage({
+        type: 'run',
+        id: runId,
+        revision: snapshot.revision,
+        input: normalized.text,
+        filter: filter,
+        regexChecks: compiled.regexChecks,
+        limits: clone(LIMITS)
+      });
+    });
+    return promise;
+  }
+
+  var app = {
+    getState: function () { return stateCopy(); },
+    setInput: function (text, format) {
+      if (typeof text !== 'string') throw makeError('input', 'input must be text');
+      if (encoder.encode(text).byteLength > MAX_INPUT_BYTES) throw makeError('input', 'input exceeds 5242880 bytes', 'INPUT_TOO_LARGE');
+      core.normalizeInput(text, format);
+      state.inputText = text;
+      state.format = format;
+      invalidate();
+      return stateCopy();
+    },
+    setBuilder: function (builder) { return setStateField('builder', builder); },
+    setMode: function (mode) {
+      if (mode !== 'builder' && mode !== 'custom') throw makeError('mode', 'mode must be builder or custom');
+      return setStateField('mode', mode);
+    },
+    setCustomFilter: function (text) {
+      if (typeof text !== 'string') throw makeError('filter', 'custom filter must be a string');
+      return setStateField('customFilter', text);
+    },
+    setCollect: function (collect) {
+      if (typeof collect !== 'boolean') throw makeError('collect', 'collect must be boolean');
+      return setStateField('collect', collect);
+    },
+    run: run,
+    cancel: function () {
+      if (!active) return null;
+      return cancelActive('cancelled', 'run cancelled');
+    },
+    subscribe: function (listener) {
+      if (typeof listener !== 'function') throw new TypeError('listener must be a function');
+      subscribers.push(listener);
+      return function () {
+        var index = subscribers.indexOf(listener);
+        if (index >= 0) subscribers.splice(index, 1);
+      };
+    }
+  };
+
+  root.JQApp = app;
+})(typeof globalThis === 'object' ? globalThis : this);
+</script>

@@ -7,7 +7,6 @@ const DEFAULT_LIMITS = {
 };
 const MAX_ERROR_BYTES = 4096;
 const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
 const jqReady = loadJq();
 let queue = Promise.resolve();
 
@@ -22,8 +21,31 @@ function reply(request, result) {
 
 function errorResult(stage, message, outputText = '', valueCount = 0) {
   const bytes = textEncoder.encode(String(message).trim());
-  const boundedMessage = textDecoder.decode(bytes.slice(0, MAX_ERROR_BYTES));
+  let boundedMessage = '';
+  for (let end = Math.min(MAX_ERROR_BYTES, bytes.length); end >= 0; end -= 1) {
+    try {
+      boundedMessage = new TextDecoder('utf-8', { fatal: true }).decode(bytes.slice(0, end));
+      break;
+    } catch (error) {
+      // A UTF-8 character may straddle the diagnostic byte boundary.
+    }
+  }
   return { status: 'error', outputText, valueCount, error: { stage, message: boundedMessage } };
+}
+
+function validLimit(value) {
+  return typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value) && value >= 0;
+}
+
+function resolveLimits(requestLimits) {
+  if (requestLimits !== undefined && (requestLimits === null || typeof requestLimits !== 'object' || Array.isArray(requestLimits))) {
+    return { error: 'limits must be an object' };
+  }
+  const limits = { ...DEFAULT_LIMITS, ...(requestLimits || {}) };
+  for (const name of ['inputBytes', 'outputBytes', 'outputValues']) {
+    if (!validLimit(limits[name])) return { error: `${name} must be a finite nonnegative integer` };
+  }
+  return { limits };
 }
 
 function limitValues(outputText, outputBytes, outputValues) {
@@ -55,7 +77,12 @@ function regexQuery(pattern, flags) {
 
 async function handle(request) {
   if (!request || request.type !== 'run') return;
-  const limits = { ...DEFAULT_LIMITS, ...(request.limits || {}) };
+  const resolved = resolveLimits(request.limits);
+  if (resolved.error) {
+    reply(request, errorResult('limits', resolved.error));
+    return;
+  }
+  const limits = resolved.limits;
   if (typeof request.input !== 'string') {
     reply(request, errorResult('input', 'input must be normalized JSON stream text'));
     return;

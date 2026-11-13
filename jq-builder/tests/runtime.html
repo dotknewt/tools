@@ -44,6 +44,18 @@
       const core = globalThis.JQCore;
       const limits = { inputBytes: 5242880, outputBytes: 1048576, outputValues: 1000 };
 
+      const defaultValueCap = await run({
+        type: 'run', input: Array.from({ length: 1001 }, () => '1').join('\n'),
+        filter: 'inputs', regexChecks: []
+      });
+      check('default output value cap is 1000 values', defaultValueCap.status === 'truncated' && defaultValueCap.valueCount === 1000, JSON.stringify(defaultValueCap));
+
+      const defaultByteCap = await run({
+        type: 'run', input: JSON.stringify('x'.repeat(1048575)),
+        filter: 'inputs', regexChecks: []
+      });
+      check('default output byte cap is 1048576 bytes', defaultByteCap.status === 'truncated' && new TextEncoder().encode(defaultByteCap.outputText).byteLength <= 1048576, JSON.stringify({ status: defaultByteCap.status, bytes: new TextEncoder().encode(defaultByteCap.outputText).byteLength }));
+
       const literalBuilder = core.compileBuilder({
         source: { kind: 'root', path: [] },
         condition: { kind: 'leaf', path: ['a.b'], op: 'eq', value: 'yes' },
@@ -262,6 +274,17 @@
       });
       check('invalid regex reports an error', invalid.status === 'error' && invalid.error && invalid.error.stage === 'regex', JSON.stringify(invalid));
 
+      const invalidEmpty = await run({
+        type: 'run', input: '', filter: 'inputs | .',
+        regexChecks: [{ pattern: '[', flags: '' }], limits
+      });
+      check('invalid regex is rejected for an empty stream', invalidEmpty.status === 'error' && invalidEmpty.error && invalidEmpty.error.stage === 'regex', JSON.stringify(invalidEmpty));
+
+      const emptyJsonl = await run({
+        type: 'run', input: '', filter: 'inputs | .', regexChecks: [], limits
+      });
+      check('normalized empty JSONL is an empty successful stream', emptyJsonl.status === 'ok' && emptyJsonl.outputText === '' && emptyJsonl.valueCount === 0, JSON.stringify(emptyJsonl));
+
       const stream = await run({
         type: 'run',
         input: '{"n":1}\n{"n":2}\n',
@@ -333,6 +356,29 @@
         limits: { inputBytes: 5242880, outputBytes: 3, outputValues: 2 }
       });
       check('error after output returns capped incomplete preview', errorAfterOutput.status === 'error' && errorAfterOutput.outputText === '1\n2' && errorAfterOutput.valueCount === 2 && new TextEncoder().encode(errorAfterOutput.outputText).byteLength <= 3 && errorAfterOutput.error && new TextEncoder().encode(errorAfterOutput.error.message).byteLength <= 4096, JSON.stringify(errorAfterOutput));
+
+      const collectedByteCapped = await run({
+        type: 'run', input: JSON.stringify('\u00e9'), filter: '[inputs]', regexChecks: [],
+        limits: { inputBytes: 5242880, outputBytes: 3, outputValues: 1000 }
+      });
+      check('collected arrays still obey the byte cap as one value', collectedByteCapped.status === 'truncated' && collectedByteCapped.outputText === '' && collectedByteCapped.valueCount === 0, JSON.stringify(collectedByteCapped));
+
+      for (const field of ['inputBytes', 'outputBytes', 'outputValues']) {
+        for (const [label, value] of [['NaN', NaN], ['Infinity', Infinity], ['negative', -1], ['string', '1']]) {
+          const invalidLimits = { inputBytes: 5242880, outputBytes: 1048576, outputValues: 1000 };
+          invalidLimits[field] = value;
+          const invalidLimit = await run({
+            type: 'run', input: '1', filter: 'inputs', regexChecks: [], limits: invalidLimits
+          });
+          check(`rejects ${label} ${field} override`, invalidLimit.status === 'error' && invalidLimit.error && invalidLimit.error.stage === 'limits', JSON.stringify(invalidLimit));
+        }
+      }
+
+      const longDiagnostic = await run({
+        type: 'run', input: '1', filter: 'error(("x" * 4095) + "\u00e9")', regexChecks: [], limits
+      });
+      const diagnosticBytes = longDiagnostic.error ? new TextEncoder().encode(longDiagnostic.error.message).byteLength : Infinity;
+      check('diagnostics stay within 4096 UTF-8 bytes at a multibyte boundary', longDiagnostic.status === 'error' && diagnosticBytes <= 4096 && !longDiagnostic.error.message.includes('\ufffd'), JSON.stringify({ status: longDiagnostic.status, diagnosticBytes }));
     } catch (error) {
       check('worker protocol completes', false, String(error));
     } finally {

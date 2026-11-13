@@ -1,0 +1,109 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>jq controller browser tests</title>
+<pre id="test-summary">FAIL</pre>
+<pre id="test-details"></pre>
+<iframe id="app" src="../index.html" hidden></iframe>
+<script>
+(() => {
+  const summary = document.querySelector('#test-summary');
+  const details = document.querySelector('#test-details');
+  const frame = document.querySelector('#app');
+  const checks = [];
+
+  function check(name, condition, evidence) {
+    checks.push({ name, pass: Boolean(condition), evidence: evidence || '' });
+  }
+
+  function waitForEvent(app, predicate, timeout = 7000) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        unsubscribe();
+        reject(new Error(`timed out waiting for ${predicate.name || 'event'}`));
+      }, timeout);
+      const unsubscribe = app.subscribe((state, status, result) => {
+        if (!predicate(state, status, result)) return;
+        clearTimeout(timer);
+        unsubscribe();
+        resolve({ state, status, result });
+      });
+    });
+  }
+
+  async function main() {
+    try {
+      await new Promise((resolve, reject) => {
+        frame.addEventListener('load', resolve, { once: true });
+        frame.addEventListener('error', () => reject(new Error('application frame failed')), { once: true });
+      });
+      const app = frame.contentWindow.JQApp;
+      check('JQApp exposes the requested methods', app && ['getState', 'setInput', 'setBuilder', 'setMode', 'setCustomFilter', 'setCollect', 'run', 'cancel', 'subscribe'].every((name) => typeof app[name] === 'function'));
+
+      let state = app.getState();
+      const originalRevision = state.revision;
+      state.inputText = 'mutated copy';
+      check('getState returns a copy', app.getState().inputText !== 'mutated copy');
+
+      let event = waitForEvent(app, (next, status) => next.revision > originalRevision && status === 'stale');
+      app.setInput('1', 'jsonl');
+      await event;
+      check('changing input increments revision and invalidates results', app.getState().revision === originalRevision + 1, JSON.stringify(app.getState()));
+
+      app.setMode('custom');
+      app.setCustomFilter('.');
+      const first = await app.run();
+      check('a simple run completes with current output', first.status === 'ok' && first.outputText === '1' && first.complete === true, JSON.stringify(first));
+
+      const afterRun = app.getState();
+      event = waitForEvent(app, (next, status, result) => status === 'stale' && result === null);
+      app.setCustomFilter('., error("stale")');
+      await event;
+      check('changing the filter invalidates the previous result', app.getState().revision > afterRun.revision, JSON.stringify(app.getState()));
+
+      const partial = await app.run();
+      check('runtime error after output is incomplete', partial.status === 'error' && partial.complete === false && partial.valueCount === 1 && partial.outputText === '1', JSON.stringify(partial));
+
+      const builder = {
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: [], op: 'regex', value: '[', flags: '' },
+        steps: [], projection: null
+      };
+      app.setInput('', 'jsonl');
+      app.setBuilder(builder);
+      app.setMode('builder');
+      const invalidRegex = await app.run();
+      check('invalid generated regex fails before an empty stream runs', invalidRegex.status === 'error' && invalidRegex.error && invalidRegex.error.stage === 'regex', JSON.stringify(invalidRegex));
+
+      let rejected = false;
+      try { app.setInput('x'.repeat(5 * 1024 * 1024 + 1), 'jsonl'); } catch (error) { rejected = error && error.code === 'INPUT_TOO_LARGE'; }
+      check('input over 5 MiB UTF-8 bytes is rejected on the main thread', rejected);
+
+      app.setInput('1', 'jsonl');
+      app.setMode('custom');
+      app.setCustomFilter('range(0; 1000000000000)');
+      const timeoutRun = await app.run();
+      check('a long run times out at the production default', timeoutRun.status === 'timeout' && timeoutRun.complete === false, JSON.stringify(timeoutRun));
+
+      app.setCustomFilter('.');
+      const recovery = await app.run();
+      check('a timed-out worker is recreated for the next run', recovery.status === 'ok' && recovery.outputText === '1', JSON.stringify(recovery));
+
+      app.setCustomFilter('range(0; 1000000000000)');
+      const superseded = app.run();
+      app.setCustomFilter('.');
+      const current = await app.run();
+      const old = await superseded;
+      check('cancelled or older run replies cannot replace current output', current.status === 'ok' && current.outputText === '1' && old.status === 'cancelled', JSON.stringify({ old, current }));
+    } catch (error) {
+      check('controller harness completes', false, String(error));
+    } finally {
+      const failed = checks.filter((item) => !item.pass);
+      details.textContent = checks.map((item) => `${item.pass ? 'PASS' : 'FAIL'} ${item.name}${item.evidence ? `: ${item.evidence}` : ''}`).join('\n');
+      summary.textContent = failed.length === 0 ? `PASS (${checks.length} checks)` : `FAIL (${failed.length}/${checks.length} checks failed)`;
+      document.documentElement.dataset.testComplete = 'true';
+    }
+  }
+
+  main();
+})();
+</script>
