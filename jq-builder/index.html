@@ -1,0 +1,1058 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>jq builder</title>
+<script id="jq-core">
+(function (root) {
+  'use strict';
+
+  // Replacement grammar: all replacement text is literal except jq-style
+  // \(.name) interpolation, where the expression is only a named-capture
+  // field path (including quoted fields such as .["a.b"]). Arbitrary jq
+  // expressions are intentionally not accepted by the builder compiler.
+  var LEAF_OPS = new Set(['eq', 'ne', 'lt', 'le', 'gt', 'ge', 'exists', 'missing', 'null', 'type', 'contains', 'startsWith', 'endsWith', 'regex', 'any', 'all']);
+  var STEP_OPS = new Set(['match', 'capture', 'sub', 'gsub']);
+  var FORMATS = new Set(['json', 'jsonc', 'jsonl']);
+
+  function inputError(message, line) {
+    var error = new Error(message);
+    error.code = 'INVALID_INPUT';
+    if (line !== undefined) error.line = line;
+    return error;
+  }
+
+  function stripJsonc(text) {
+    var result = '';
+    var quote = false;
+    var escaped = false;
+    for (var i = 0; i < text.length; i += 1) {
+      var ch = text[i];
+      var next = text[i + 1];
+      if (quote) {
+        result += ch;
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') quote = false;
+        continue;
+      }
+      if (ch === '"') {
+        quote = true;
+        result += ch;
+      } else if (ch === '/' && next === '/') {
+        result += '  ';
+        i += 2;
+        while (i < text.length && text[i] !== '\n' && text[i] !== '\r') {
+          result += ' ';
+          i += 1;
+        }
+        i -= 1;
+      } else if (ch === '/' && next === '*') {
+        result += '  ';
+        i += 2;
+        var closed = false;
+        while (i < text.length) {
+          if (text[i] === '*' && text[i + 1] === '/') {
+            result += '  ';
+            i += 1;
+            closed = true;
+            break;
+          }
+          if (text[i] === '\n' || text[i] === '\r') result += text[i];
+          else result += ' ';
+          i += 1;
+        }
+        if (!closed) throw inputError('unterminated JSONC comment');
+      } else {
+        result += ch;
+      }
+    }
+    var withoutTrailing = '';
+    var containers = [];
+    quote = false;
+    escaped = false;
+    for (var j = 0; j < result.length; j += 1) {
+      var current = result[j];
+      if (quote) {
+        withoutTrailing += current;
+        if (escaped) escaped = false;
+        else if (current === '\\') escaped = true;
+        else if (current === '"') quote = false;
+        continue;
+      }
+      if (current === '"') {
+        quote = true;
+        withoutTrailing += current;
+      } else if (current === ',') {
+        var k = j + 1;
+        while (k < result.length && /\s/.test(result[k])) k += 1;
+        var previous = j - 1;
+        while (previous >= 0 && /\s/.test(result[previous])) previous -= 1;
+        var closer = result[k];
+        var matching = closer === ']' ? '[' : closer === '}' ? '{' : '';
+        var previousIsValue = previous >= 0 && !['[', '{', ',', ':'].includes(result[previous]);
+        if (!(matching && containers[containers.length - 1] === matching && previousIsValue)) withoutTrailing += current;
+      } else if (current === '[' || current === '{') {
+        containers.push(current);
+        withoutTrailing += current;
+      } else if (current === ']' || current === '}') {
+        if (containers.length > 0 && containers[containers.length - 1] === (current === ']' ? '[' : '{')) containers.pop();
+        withoutTrailing += current;
+      } else {
+        withoutTrailing += current;
+      }
+    }
+    return withoutTrailing;
+  }
+
+  function parseSample(text, line) {
+    try {
+      return JSON.parse(text);
+    } catch (error) {
+      throw inputError('invalid JSON' + (line === undefined ? '' : ' on line ' + line), line);
+    }
+  }
+
+  function normalizeInput(text, format) {
+    if (typeof text !== 'string') throw inputError('input must be text');
+    if (!FORMATS.has(format)) throw inputError('unsupported input format: ' + String(format));
+    if (format === 'jsonl') {
+      var lines = text.split(/\r?\n|\r/);
+      var normalizedLines = [];
+      var samples = [];
+      for (var i = 0; i < lines.length; i += 1) {
+        if (lines[i].trim() === '') continue;
+        samples.push(parseSample(lines[i], i + 1));
+        normalizedLines.push(lines[i]);
+      }
+      return { text: normalizedLines.join('\n'), samples: samples, warnings: [] };
+    }
+    var normalized = format === 'jsonc' ? stripJsonc(text) : text;
+    return { text: normalized, samples: [parseSample(normalized)], warnings: [] };
+  }
+
+  function suggestPaths(samples) {
+    if (!Array.isArray(samples)) throw new TypeError('samples must be an array');
+    var paths = [];
+    var seen = new Set();
+    var maxPaths = 500;
+    var maxDepth = 32;
+    var truncated = false;
+    function visit(value, path, depth) {
+      if (truncated || value === null || typeof value !== 'object') return;
+      var keys = Array.isArray(value) ? value.map(function (_, index) { return index; }) : Object.keys(value).sort();
+      if (depth >= maxDepth) {
+        for (var cutoffIndex = 0; cutoffIndex < keys.length; cutoffIndex += 1) {
+          if (!seen.has(JSON.stringify(path.concat(keys[cutoffIndex])))) {
+            truncated = true;
+            return;
+          }
+        }
+        return;
+      }
+      for (var i = 0; i < keys.length; i += 1) {
+        var key = keys[i];
+        var childPath = path.concat(key);
+        var childKey = JSON.stringify(childPath);
+        if (!seen.has(childKey)) {
+          if (paths.length >= maxPaths) {
+            truncated = true;
+            return;
+          }
+          seen.add(childKey);
+          paths.push(childPath);
+        }
+        visit(value[key], childPath, depth + 1);
+        if (truncated) return;
+      }
+    }
+    samples.forEach(function (sample) { visit(sample, [], 0); });
+    return { paths: paths, truncated: truncated };
+  }
+
+  function isJsonValue(value, seen) {
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+    if (typeof value === 'number') return Number.isFinite(value);
+    if (typeof value !== 'object') return false;
+    if (seen.has(value)) return false;
+    seen.add(value);
+    if (Array.isArray(value)) return value.every(function (item) { return isJsonValue(item, seen); });
+    return Object.keys(value).every(function (key) { return isJsonValue(value[key], seen); });
+  }
+
+  function pathLiteral(path) {
+    if (!Array.isArray(path)) throw new TypeError('path must be an array');
+    return path.map(function (part) {
+      if (typeof part === 'string') return part;
+      if (typeof part === 'number' && Number.isInteger(part) && part >= 0) return part;
+      throw new TypeError('path entries must be strings or nonnegative integer indices');
+    });
+  }
+
+  function jsonLiteral(value) {
+    if (!isJsonValue(value, new Set())) throw new TypeError('value must be JSON serializable');
+    var text = JSON.stringify(value);
+    if (text === undefined) throw new TypeError('value must be JSON serializable');
+    return text;
+  }
+
+  function validateCondition(condition, regexChecks) {
+    if (!condition || typeof condition !== 'object') throw new TypeError('condition must be an object');
+    if (condition.kind === 'group') {
+      if (!['and', 'or', 'not'].includes(condition.op) || !Array.isArray(condition.children)) throw new TypeError('invalid condition group');
+      if (condition.op === 'not' && condition.children.length !== 1) throw new TypeError('not requires exactly one child');
+      condition.children.forEach(function (child) { validateCondition(child, regexChecks); });
+      return;
+    }
+    if (condition.kind !== 'leaf' || !LEAF_OPS.has(condition.op)) throw new TypeError('invalid condition leaf');
+    pathLiteral(condition.path);
+    if (condition.flags !== undefined && typeof condition.flags !== 'string') throw new TypeError('condition flags must be a string');
+    if (condition.op === 'regex') {
+      if (typeof condition.value !== 'string') throw new TypeError('regex pattern must be a string');
+      regexChecks.push({ pattern: condition.value, flags: condition.flags || '' });
+    } else if (condition.op === 'any' || condition.op === 'all') {
+      if (!condition.child) throw new TypeError(condition.op + ' requires a child');
+      validateCondition(condition.child, regexChecks);
+    } else if (!['exists', 'missing', 'null'].includes(condition.op)) {
+      if (!Object.prototype.hasOwnProperty.call(condition, 'value') || !isJsonValue(condition.value, new Set())) throw new TypeError('condition value must be JSON serializable');
+    }
+  }
+
+  function replacementLiteral(replacement) {
+    if (typeof replacement !== 'string') throw new TypeError('replacement must be a string');
+    var parts = [];
+    var literal = '';
+    function flushLiteral() {
+      if (literal !== '') {
+        parts.push(JSON.stringify(literal));
+        literal = '';
+      }
+    }
+    function capturePath(body) {
+      var position = 0;
+      var path = '';
+      if (body[position] !== '.') throw new TypeError('replacement interpolation must be a named capture path');
+      path += '.';
+      position += 1;
+      var needSegment = true;
+      while (position < body.length) {
+        var identifier = body.slice(position).match(/^[A-Za-z_][A-Za-z0-9_]*/);
+        if (needSegment && identifier) {
+          path += identifier[0];
+          position += identifier[0].length;
+          needSegment = false;
+          continue;
+        }
+        if (needSegment && body[position] !== '[') throw new TypeError('replacement interpolation must be a named capture path');
+        if (!needSegment && body[position] === '.') {
+          path += '.';
+          position += 1;
+          needSegment = true;
+          continue;
+        }
+        if (body[position] !== '[') throw new TypeError('replacement interpolation must be a named capture path');
+        var end = position + 1;
+        var quoted = false;
+        var escaped = false;
+        for (; end < body.length; end += 1) {
+          var character = body[end];
+          if (quoted) {
+            if (escaped) escaped = false;
+            else if (character === '\\') escaped = true;
+            else if (character === '"') quoted = false;
+          } else if (character === '"') {
+            quoted = true;
+          } else if (character === ']') {
+            break;
+          }
+        }
+        if (end >= body.length || !quoted && body[position + 1] !== '"') throw new TypeError('replacement interpolation must use quoted capture fields');
+        var key;
+        try {
+          key = JSON.parse(body.slice(position + 1, end));
+        } catch (error) {
+          throw new TypeError('replacement interpolation must use quoted capture fields');
+        }
+        if (typeof key !== 'string') throw new TypeError('replacement interpolation must use quoted capture fields');
+        path += '[' + JSON.stringify(key) + ']';
+        position = end + 1;
+        needSegment = false;
+      }
+      if (needSegment) throw new TypeError('replacement interpolation must be a named capture path');
+      return path;
+    }
+    for (var position = 0; position < replacement.length; position += 1) {
+      if (replacement[position] === '\\' && replacement[position + 1] === '\\') {
+        literal += '\\\\';
+        position += 1;
+        continue;
+      }
+      if (replacement[position] !== '\\' || replacement[position + 1] !== '(') {
+        literal += replacement[position];
+        continue;
+      }
+      flushLiteral();
+      var end = position + 2;
+      var interpolation = '';
+      var closed = false;
+      var quoted = false;
+      var escaped = false;
+      while (end < replacement.length) {
+        var character = replacement[end];
+        if (quoted) {
+          interpolation += character;
+          if (escaped) escaped = false;
+          else if (character === '\\') escaped = true;
+          else if (character === '"') quoted = false;
+          end += 1;
+          continue;
+        }
+        if (character === '"') {
+          quoted = true;
+          interpolation += character;
+          end += 1;
+          continue;
+        }
+        if (character === ')') {
+          closed = true;
+          break;
+        }
+        interpolation += character;
+        end += 1;
+      }
+      if (!closed) throw new TypeError('replacement interpolation must be a named capture path');
+      parts.push('"\\(' + capturePath(interpolation) + ')"');
+      position = end;
+    }
+    flushLiteral();
+    if (parts.length === 0) return '""';
+    return parts.length === 1 ? parts[0] : '(' + parts.join(' + ') + ')';
+  }
+
+  function validateStep(step, regexChecks) {
+    if (!step || typeof step !== 'object' || !STEP_OPS.has(step.op) || !['emit', 'update'].includes(step.mode)) throw new TypeError('invalid transformation step');
+    pathLiteral(step.path);
+    if (typeof step.pattern !== 'string' || typeof step.flags !== 'string') throw new TypeError('step pattern and flags must be strings');
+    regexChecks.push({ pattern: step.pattern, flags: step.flags });
+    if (step.op === 'sub' || step.op === 'gsub') {
+      if (typeof step.replacement !== 'string') throw new TypeError('replacement is required for sub and gsub');
+      replacementLiteral(step.replacement);
+    }
+    if ((step.op === 'match' || step.op === 'capture') && step.replacement !== undefined) throw new TypeError('replacement is not valid for this step');
+  }
+
+  function validateBuilder(builder) {
+    if (!builder || typeof builder !== 'object' || !builder.source || !['root', 'items'].includes(builder.source.kind)) throw new TypeError('invalid builder source');
+    pathLiteral(builder.source.path);
+    var regexChecks = [];
+    validateCondition(builder.condition, regexChecks);
+    if (!Array.isArray(builder.steps)) throw new TypeError('steps must be an array');
+    builder.steps.forEach(function (step) { validateStep(step, regexChecks); });
+    if (builder.projection !== null && !Array.isArray(builder.projection)) throw new TypeError('projection must be null or an array');
+    if (builder.projection) {
+      var aliases = new Set();
+      builder.projection.forEach(function (entry) {
+        if (!entry || typeof entry.name !== 'string' || entry.name.length === 0) throw new TypeError('projection aliases must be nonempty strings');
+        if (aliases.has(entry.name)) throw new TypeError('duplicate projection alias: ' + entry.name);
+        aliases.add(entry.name);
+        pathLiteral(entry.path);
+      });
+    }
+    return regexChecks;
+  }
+
+  function pathSource(path) {
+    return JSON.stringify(pathLiteral(path));
+  }
+
+  function hasExpr(path) { return '__jqb_has(.;' + pathSource(path) + ')'; }
+  function getExpr(path) { return '__jqb_get(.;' + pathSource(path) + ')'; }
+
+  function conditionExpr(condition) {
+    if (condition.kind === 'group') {
+      if (condition.op === 'not') return '((' + conditionExpr(condition.children[0]) + ') | not)';
+      if (condition.children.length === 0) return condition.op === 'and' ? 'true' : 'false';
+      return '(' + condition.children.map(conditionExpr).map(function (expr) { return '(' + expr + ')'; }).join(' ' + condition.op + ' ') + ')';
+    }
+    var path = condition.path;
+    var has = hasExpr(path);
+    var value = getExpr(path);
+    var op = condition.op;
+    if (op === 'exists') return '(' + has + ')';
+    if (op === 'missing') return '((' + has + ') | not)';
+    if (op === 'null') return '((' + has + ') and ((' + value + ') | type) == "null")';
+    if (op === 'any' || op === 'all') {
+      var child = conditionExpr(condition.child);
+      return '(' + value + ' as $__jqb_any_value | if ($__jqb_any_value | type) == "array" then ($__jqb_any_value | map(' + child + ') | ' + op + ') else false end)';
+    }
+    var literal = jsonLiteral(condition.value);
+    if (op === 'regex') return '(' + value + ' as $__jqb_value | if ($__jqb_value | type) == "string" and (' + has + ') then ($__jqb_value | test(' + literal + '; ' + JSON.stringify(condition.flags || '') + ')) else false end)';
+    if (op === 'type') return '(' + has + ' and ((' + value + ') | type) == ' + literal + ')';
+    if (op === 'startsWith' || op === 'endsWith') {
+      var fn = op === 'startsWith' ? 'startswith' : 'endswith';
+      return '(' + value + ' as $__jqb_value | if (' + has + ') and (($__jqb_value | type) == "string") and ((' + literal + ') | type) == "string" then ($__jqb_value | ' + fn + '(' + literal + ')) else false end)';
+    }
+    if (op === 'contains') return '(' + value + ' as $__jqb_value | if (' + has + ') and (($__jqb_value | type) == (' + literal + ' | type)) and (($__jqb_value | type) == "array" or ($__jqb_value | type) == "object" or ($__jqb_value | type) == "string") then ($__jqb_value | contains(' + literal + ')) else false end)';
+    if (['lt', 'le', 'gt', 'ge'].includes(op)) return '(' + value + ' as $__jqb_value | if (' + has + ') and (($__jqb_value | type) == (' + literal + ' | type)) and (($__jqb_value | type) == "number" or ($__jqb_value | type) == "string") then ($__jqb_value ' + ({ lt: '<', le: '<=', gt: '>', ge: '>=' }[op]) + ' ' + literal + ') else false end)';
+    return '(' + value + ' as $__jqb_value | if (' + has + ') and (($__jqb_value | type) == (' + literal + ' | type)) then ($__jqb_value ' + (op === 'eq' ? '==' : '!=') + ' ' + literal + ') else false end)';
+  }
+
+  function operationExpr(step) {
+    var target = getExpr(step.path);
+    var pattern = JSON.stringify(step.pattern);
+    var flags = JSON.stringify(step.flags);
+    if (step.op === 'match') return 'match(' + pattern + '; ' + flags + ')';
+    if (step.op === 'capture') return 'capture(' + pattern + '; ' + flags + ')';
+    return step.op + '(' + pattern + '; ' + replacementLiteral(step.replacement) + '; ' + flags + ')';
+  }
+
+  function stepExpr(step) {
+    var target = getExpr(step.path);
+    var op = operationExpr(step);
+    var transformed = '(' + target + ' | if type == "string" then ' + op + ' else error("transformation target must be a string") end)';
+    if (step.mode === 'emit') return transformed;
+    var path = pathSource(step.path);
+    return '. as $__jqb_record | [' + transformed + '] as $__jqb_values | if ($__jqb_values | length) == 0 then $__jqb_record elif ($__jqb_values | length) == 1 then ($__jqb_record | setpath(' + path + '; $__jqb_values[0])) else ($__jqb_record | setpath(' + path + '; $__jqb_values)) end';
+  }
+
+  function projectionExpr(projection) {
+    if (projection === null) return '.';
+    return '{' + projection.map(function (entry) {
+      var name = JSON.stringify(entry.name);
+      var path = pathSource(entry.path);
+      return name + ': (if __jqb_has(.;' + path + ') then __jqb_get(.;' + path + ') else null end)';
+    }).join(', ') + '}';
+  }
+
+  function compileBuilder(builder) {
+    var regexChecks = validateBuilder(builder);
+    var source = '__jqb_get(.;' + pathSource(builder.source.path) + ')';
+    if (builder.source.kind === 'items') source += ' | if type == "array" then .[] else empty end';
+    var filter = [
+      'def __jqb_has($v;$p): if ($p|length)==0 then true elif ($v|type)=="object" and ($p[0]|type)=="string" then (($v|has($p[0])) and __jqb_has($v[$p[0]];$p[1:])) elif ($v|type)=="array" and ($p[0]|type)=="number" and ($p[0]>=0) and ($p[0]<($v|length)) then __jqb_has($v[$p[0]];$p[1:]) else false end;',
+      'def __jqb_get($v;$p): if ($p|length)==0 then $v elif ($v|type)=="object" and ($p[0]|type)=="string" and ($v|has($p[0])) then __jqb_get($v[$p[0]];$p[1:]) elif ($v|type)=="array" and ($p[0]|type)=="number" and ($p[0]>=0) and ($p[0]<($v|length)) then __jqb_get($v[$p[0]];$p[1:]) else null end;',
+      '(' + source + ')',
+      '| select(' + conditionExpr(builder.condition) + ')'
+    ];
+    builder.steps.forEach(function (step) { filter.push('| ' + stepExpr(step)); });
+    filter.push('| ' + projectionExpr(builder.projection));
+    return { filter: filter.join('\n'), regexChecks: regexChecks };
+  }
+
+  function effectiveFilter(filter, collect) {
+    if (typeof filter !== 'string') throw new TypeError('filter must be a string');
+    return collect ? '[inputs | (' + filter + '\n)]' : 'inputs | (' + filter + '\n)';
+  }
+
+  var RECIPE_MAX_BYTES = 32 * 1024 * 1024;
+  var RECIPE_MAX_INPUT_BYTES = 5 * 1024 * 1024;
+  var RECIPE_MAX_DEPTH = 64;
+  var RECIPE_MAX_PATH = 64;
+  var RECIPE_MAX_CHILDREN = 512;
+  var RECIPE_MAX_CONDITIONS = 2048;
+  var RECIPE_MAX_STEPS = 256;
+  var RECIPE_MAX_PROJECTION = 512;
+  var RECIPE_MAX_ARRAY = 4096;
+  var RECIPE_MAX_OBJECT_KEYS = 4096;
+  var RECIPE_MAX_STRING_BYTES = 1024 * 1024;
+  var recipeEncoder = new TextEncoder();
+
+  function recipeError(message) {
+    var error = new TypeError(message);
+    error.code = 'INVALID_RECIPE';
+    error.stage = 'recipe';
+    return error;
+  }
+
+  function recipeObject(value, label) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw recipeError(label + ' must be an object');
+    if (Object.prototype.toString.call(value) !== '[object Object]') throw recipeError(label + ' has an unsafe prototype');
+    return value;
+  }
+
+  function recipeKeys(value, required, optional, label) {
+    recipeObject(value, label);
+    var allowed = new Set(required.concat(optional || []));
+    Object.keys(value).forEach(function (key) {
+      if (!allowed.has(key)) throw recipeError(label + ' contains unknown field: ' + key);
+    });
+    required.forEach(function (key) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) throw recipeError(label + ' is missing field: ' + key);
+    });
+  }
+
+  function recipeString(value, label, maxBytes) {
+    if (typeof value !== 'string') throw recipeError(label + ' must be a string');
+    if (recipeEncoder.encode(value).byteLength > (maxBytes || RECIPE_MAX_STRING_BYTES)) throw recipeError(label + ' is too large');
+    return value;
+  }
+
+  function recipeJsonValue(value, depth, seen) {
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+      if (typeof value === 'string') recipeString(value, 'JSON string');
+      return value;
+    }
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value)) throw recipeError('JSON value must contain finite numbers');
+      return value;
+    }
+    if (!value || typeof value !== 'object') throw recipeError('JSON value has an unsupported type');
+    if (depth > RECIPE_MAX_DEPTH) throw recipeError('recipe nesting exceeds ' + RECIPE_MAX_DEPTH + ' levels');
+    if (seen.has(value)) throw recipeError('recipe contains a cycle');
+    var valueTag = Object.prototype.toString.call(value);
+    if (valueTag !== '[object Object]' && valueTag !== '[object Array]') throw recipeError('JSON value has an unsafe prototype');
+    seen.add(value);
+    var copy;
+    if (Array.isArray(value)) {
+      if (value.length > RECIPE_MAX_ARRAY) throw recipeError('JSON array is too wide');
+      copy = value.map(function (item) { return recipeJsonValue(item, depth + 1, seen); });
+    } else {
+      var keys = Object.keys(value);
+      if (keys.length > RECIPE_MAX_OBJECT_KEYS) throw recipeError('JSON object is too wide');
+      copy = {};
+      keys.forEach(function (key) {
+        if (key === '__proto__' || key === 'constructor' || key === 'prototype') throw recipeError('JSON value contains an unsafe object key');
+        Object.defineProperty(copy, key, { value: recipeJsonValue(value[key], depth + 1, seen), enumerable: true, writable: true, configurable: true });
+      });
+    }
+    seen.delete(value);
+    return copy;
+  }
+
+  function recipePath(path, label) {
+    if (!Array.isArray(path)) throw recipeError(label + ' must be an array');
+    if (path.length > RECIPE_MAX_PATH) throw recipeError(label + ' is too deep');
+    return path.map(function (part) {
+      if (typeof part === 'string') return recipeString(part, label + ' key');
+      if (typeof part === 'number' && Number.isInteger(part) && part >= 0) return part;
+      throw recipeError(label + ' entries must be strings or nonnegative integer indices');
+    });
+  }
+
+  function recipeCondition(condition, depth, counter) {
+    if (depth > RECIPE_MAX_DEPTH) throw recipeError('condition nesting exceeds ' + RECIPE_MAX_DEPTH + ' levels');
+    if (++counter.count > RECIPE_MAX_CONDITIONS) throw recipeError('condition tree is too wide');
+    recipeObject(condition, 'condition');
+    if (condition.kind === 'group') {
+      recipeKeys(condition, ['kind', 'op', 'children'], [], 'condition group');
+      if (!['and', 'or', 'not'].includes(condition.op) || !Array.isArray(condition.children)) throw recipeError('invalid condition group');
+      if (condition.children.length > RECIPE_MAX_CHILDREN) throw recipeError('condition group is too wide');
+      if (condition.op === 'not' && condition.children.length !== 1) throw recipeError('not requires exactly one child');
+      return {
+        kind: 'group', op: condition.op,
+        children: condition.children.map(function (child) { return recipeCondition(child, depth + 1, counter); })
+      };
+    }
+    if (condition.kind !== 'leaf' || !LEAF_OPS.has(condition.op)) throw recipeError('invalid condition leaf');
+    var op = condition.op;
+    var required = ['kind', 'path', 'op'];
+    var optional = [];
+    if (op === 'regex') optional = ['value', 'flags'];
+    else if (op === 'any' || op === 'all') optional = ['child'];
+    else if (!['exists', 'missing', 'null'].includes(op)) optional = ['value'];
+    recipeKeys(condition, required, optional, 'condition leaf');
+    var leaf = { kind: 'leaf', path: recipePath(condition.path, 'condition path'), op: op };
+    if (op === 'regex') {
+      leaf.value = recipeString(condition.value, 'regex pattern');
+      if (condition.flags !== undefined) leaf.flags = recipeString(condition.flags, 'regex flags', 256);
+    } else if (op === 'any' || op === 'all') {
+      if (!Object.prototype.hasOwnProperty.call(condition, 'child')) throw recipeError(op + ' requires a child');
+      leaf.child = recipeCondition(condition.child, depth + 1, counter);
+    } else if (!['exists', 'missing', 'null'].includes(op)) {
+      if (!Object.prototype.hasOwnProperty.call(condition, 'value')) throw recipeError('condition value is required');
+      leaf.value = recipeJsonValue(condition.value, depth + 1, new Set());
+    }
+    return leaf;
+  }
+
+  function recipeStep(step) {
+    recipeKeys(step, ['op', 'path', 'mode', 'pattern', 'flags'], ['replacement'], 'transformation step');
+    if (!STEP_OPS.has(step.op) || !['emit', 'update'].includes(step.mode)) throw recipeError('invalid transformation step');
+    var copy = { op: step.op, path: recipePath(step.path, 'step path'), mode: step.mode, pattern: recipeString(step.pattern, 'step pattern'), flags: recipeString(step.flags, 'step flags', 256) };
+    if (step.op === 'sub' || step.op === 'gsub') {
+      copy.replacement = recipeString(step.replacement, 'step replacement');
+      try { replacementLiteral(copy.replacement); } catch (error) { throw recipeError(error.message); }
+    }
+    else if (step.replacement !== undefined) throw recipeError('replacement is not valid for this step');
+    return copy;
+  }
+
+  function recipeBuilder(builder) {
+    recipeKeys(builder, ['source', 'condition', 'steps', 'projection'], [], 'builder');
+    recipeKeys(builder.source, ['kind', 'path'], [], 'builder source');
+    if (!['root', 'items'].includes(builder.source.kind)) throw recipeError('invalid builder source');
+    var counter = { count: 0 };
+    var copy = {
+      source: { kind: builder.source.kind, path: recipePath(builder.source.path, 'source path') },
+      condition: recipeCondition(builder.condition, 0, counter),
+      steps: [],
+      projection: null
+    };
+    if (!Array.isArray(builder.steps) || builder.steps.length > RECIPE_MAX_STEPS) throw recipeError('steps must be a bounded array');
+    copy.steps = builder.steps.map(recipeStep);
+    if (builder.projection !== null && !Array.isArray(builder.projection)) throw recipeError('projection must be null or an array');
+    if (builder.projection) {
+      if (builder.projection.length > RECIPE_MAX_PROJECTION) throw recipeError('projection is too wide');
+      var aliases = new Set();
+      copy.projection = builder.projection.map(function (entry) {
+        recipeKeys(entry, ['path', 'name'], [], 'projection entry');
+        var name = recipeString(entry.name, 'projection name');
+        if (!name.length) throw recipeError('projection aliases must be nonempty strings');
+        if (aliases.has(name)) throw recipeError('duplicate projection alias: ' + name);
+        aliases.add(name);
+        return { path: recipePath(entry.path, 'projection path'), name: name };
+      });
+    }
+    return copy;
+  }
+
+  function validateRecipeObject(recipe) {
+    recipeKeys(recipe, ['version', 'format', 'builder', 'customFilter', 'mode', 'collect'], ['inputText'], 'recipe');
+    if (recipe.version !== 1) throw recipeError('unsupported recipe version');
+    if (!FORMATS.has(recipe.format)) throw recipeError('unsupported input format: ' + String(recipe.format));
+    var copy = {
+      version: 1,
+      format: recipe.format,
+      builder: recipeBuilder(recipe.builder),
+      customFilter: recipeString(recipe.customFilter, 'custom filter'),
+      mode: recipe.mode,
+      collect: recipe.collect
+    };
+    if (!['builder', 'custom'].includes(copy.mode)) throw recipeError('unsupported execution mode');
+    if (typeof copy.collect !== 'boolean') throw recipeError('collect must be boolean');
+    if (Object.prototype.hasOwnProperty.call(recipe, 'inputText')) {
+      copy.inputText = recipeString(recipe.inputText, 'input text', RECIPE_MAX_INPUT_BYTES);
+    }
+    return copy;
+  }
+
+  function exportRecipe(state, includeInput) {
+    if (includeInput === undefined) includeInput = false;
+    if (typeof includeInput !== 'boolean') throw recipeError('includeInput must be boolean');
+    recipeObject(state, 'state');
+    var candidate = {
+      version: 1,
+      format: state.format,
+      builder: state.builder,
+      customFilter: state.customFilter,
+      mode: state.mode,
+      collect: state.collect
+    };
+    if (includeInput) candidate.inputText = state.inputText;
+    var validated = validateRecipeObject(candidate);
+    var text = JSON.stringify(validated);
+    if (recipeEncoder.encode(text).byteLength > RECIPE_MAX_BYTES) throw recipeError('encoded recipe exceeds 32 MiB');
+    return text;
+  }
+
+  function importRecipe(text) {
+    if (typeof text !== 'string') throw recipeError('recipe text must be a string');
+    if (recipeEncoder.encode(text).byteLength > RECIPE_MAX_BYTES) throw recipeError('encoded recipe exceeds 32 MiB');
+    var parsed;
+    try { parsed = JSON.parse(text); } catch (error) { throw recipeError('recipe is not valid JSON'); }
+    return validateRecipeObject(parsed);
+  }
+
+  function posixQuote(value, label) {
+    if (typeof value !== 'string') throw new TypeError(label + ' must be a string');
+    return "'" + value.replace(/'/g, "'\"'\"'") + "'";
+  }
+
+  function shellCommand(filter, filename) {
+    if (filename === undefined) filename = 'input.json';
+    return 'jq -n -c -- ' + posixQuote(filter, 'filter') + ' ' + posixQuote(filename, 'filename');
+  }
+
+  root.JQCore = { normalizeInput: normalizeInput, suggestPaths: suggestPaths, compileBuilder: compileBuilder, effectiveFilter: effectiveFilter, exportRecipe: exportRecipe, importRecipe: importRecipe, shellCommand: shellCommand };
+})(typeof globalThis === 'object' ? globalThis : this);
+</script>
+<script id="jq-controller">
+(function (root) {
+  'use strict';
+
+  var MAX_INPUT_BYTES = 5 * 1024 * 1024;
+  var RUN_TIMEOUT_MS = 5000;
+  var LIMITS = { inputBytes: MAX_INPUT_BYTES, outputBytes: 1024 * 1024, outputValues: 1000 };
+  var encoder = new TextEncoder();
+  var core = root.JQCore;
+  var state = {
+    inputText: '',
+    format: 'jsonl',
+    builder: {
+      source: { kind: 'root', path: [] },
+      condition: { kind: 'group', op: 'and', children: [] },
+      steps: [],
+      projection: null
+    },
+    customFilter: '.',
+    mode: 'builder',
+    collect: false,
+    revision: 0
+  };
+  var subscribers = [];
+  var active = null;
+  var nextRunId = 0;
+  var runStatus = 'idle';
+  var result = null;
+
+  function clone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function stateCopy() { return clone(state); }
+  function resultCopy(value) { return value === null ? null : clone(value); }
+
+  function notify() {
+    subscribers.slice().forEach(function (listener) {
+      try { listener(stateCopy(), runStatus, resultCopy(result)); } catch (error) { /* subscribers are isolated */ }
+    });
+  }
+
+  function makeError(stage, message, code) {
+    var error = new Error(message);
+    error.stage = stage;
+    if (code) error.code = code;
+    return error;
+  }
+
+  function metadata(status, fields) {
+    var value = Object.assign({ status: status, outputText: '', valueCount: 0, complete: status === 'ok' }, fields || {});
+    if (status !== 'ok') value.complete = false;
+    return value;
+  }
+
+  function terminate(worker) {
+    if (!worker) return;
+    try { worker.terminate(); } catch (error) { /* termination is best effort */ }
+  }
+
+  function settleActive(run, value, status, publish) {
+    if (active !== run) return false;
+    root.clearTimeout(run.timer);
+    active = null;
+    terminate(run.worker);
+    result = value;
+    runStatus = status;
+    run.resolve(resultCopy(value));
+    if (publish !== false) notify();
+    return true;
+  }
+
+  function cancelActive(status, message, publish) {
+    if (!active) return null;
+    var run = active;
+    var value = metadata(status, { error: { stage: status, message: message } });
+    settleActive(run, value, status, publish);
+    return value;
+  }
+
+  function invalidate(mutator) {
+    if (active) cancelActive('cancelled', 'run superseded by a state change', false);
+    result = null;
+    runStatus = 'stale';
+    if (mutator) mutator();
+    state.revision += 1;
+    notify();
+  }
+
+  function setStateField(name, value) {
+    var copy = clone(value);
+    invalidate(function () { state[name] = copy; });
+    return stateCopy();
+  }
+
+  function workerFactory() {
+    return new root.Worker('worker.js', { type: 'module' });
+  }
+
+  function beginRunFailure(error) {
+    var value = metadata('error', {
+      error: { stage: error.stage || 'input', message: String(error.message || error) }
+    });
+    result = value;
+    runStatus = 'error';
+    notify();
+    return Promise.resolve(resultCopy(value));
+  }
+
+  function run() {
+    if (active) cancelActive('cancelled', 'run superseded by a newer run');
+    var snapshot = stateCopy();
+    var normalized;
+    var compiled;
+    var filter;
+    try {
+      if (encoder.encode(snapshot.inputText).byteLength > MAX_INPUT_BYTES) {
+        throw makeError('input', 'input exceeds 5242880 bytes', 'INPUT_TOO_LARGE');
+      }
+      normalized = core.normalizeInput(snapshot.inputText, snapshot.format);
+      if (snapshot.mode === 'builder') {
+        compiled = core.compileBuilder(snapshot.builder);
+        filter = compiled.filter;
+      } else if (snapshot.mode === 'custom') {
+        if (typeof snapshot.customFilter !== 'string') throw makeError('filter', 'custom filter must be a string');
+        compiled = { regexChecks: [] };
+        filter = snapshot.customFilter;
+      } else {
+        throw makeError('mode', 'unsupported execution mode');
+      }
+      filter = core.effectiveFilter(filter, snapshot.collect);
+    } catch (error) {
+      return beginRunFailure(error);
+    }
+
+    var runId = 'run-' + (++nextRunId);
+    var worker;
+    try {
+      worker = workerFactory();
+    } catch (error) {
+      return beginRunFailure(makeError('runtime', error.message || String(error)));
+    }
+    var promise = new Promise(function (resolve) {
+      var runRecord = { id: runId, worker: worker, resolve: resolve, timer: null };
+      active = runRecord;
+      result = null;
+      runStatus = 'running';
+      notify();
+      if (active !== runRecord) return;
+      runRecord.timer = root.setTimeout(function () {
+        if (active !== runRecord) return;
+        settleActive(runRecord, metadata('timeout', { error: { stage: 'timeout', message: 'execution timed out after 5000 ms' } }), 'timeout');
+      }, RUN_TIMEOUT_MS);
+      if (active !== runRecord) return;
+
+      worker.addEventListener('message', function (event) {
+        if (active !== runRecord) return;
+        var message = event.data || {};
+        if (message.type !== 'result' || message.id !== runId || message.revision !== snapshot.revision) return;
+        var value = metadata(message.status || 'error', {
+          outputText: typeof message.outputText === 'string' ? message.outputText : '',
+          valueCount: Number.isInteger(message.valueCount) ? message.valueCount : 0,
+          error: message.error ? clone(message.error) : undefined
+        });
+        settleActive(runRecord, value, message.status === 'ok' ? 'complete' : message.status);
+      });
+      worker.addEventListener('error', function (event) {
+        if (active !== runRecord) return;
+        settleActive(runRecord, metadata('error', { error: { stage: 'runtime', message: event.message || 'worker failed' } }), 'error');
+      });
+      worker.postMessage({
+        type: 'run',
+        id: runId,
+        revision: snapshot.revision,
+        input: normalized.text,
+        filter: filter,
+        regexChecks: compiled.regexChecks,
+        limits: clone(LIMITS)
+      });
+    });
+    return promise;
+  }
+
+  var app = {
+    getState: function () { return stateCopy(); },
+    setInput: function (text, format) {
+      if (typeof text !== 'string') throw makeError('input', 'input must be text');
+      if (encoder.encode(text).byteLength > MAX_INPUT_BYTES) throw makeError('input', 'input exceeds 5242880 bytes', 'INPUT_TOO_LARGE');
+      invalidate(function () {
+        state.inputText = text;
+        state.format = format;
+      });
+      return stateCopy();
+    },
+    setBuilder: function (builder) { return setStateField('builder', builder); },
+    applyRecipe: function (recipe) {
+      var validated;
+      try {
+        var text = JSON.stringify(recipe);
+        validated = core.importRecipe(text);
+      } catch (error) {
+        if (error && error.code === 'INVALID_RECIPE') throw error;
+        throw makeError('recipe', error && error.message ? error.message : 'recipe must be JSON serializable', 'INVALID_RECIPE');
+      }
+      invalidate(function () {
+        if (Object.prototype.hasOwnProperty.call(validated, 'inputText')) state.inputText = validated.inputText;
+        state.format = validated.format;
+        state.builder = clone(validated.builder);
+        state.customFilter = validated.customFilter;
+        state.mode = validated.mode;
+        state.collect = validated.collect;
+      });
+      return stateCopy();
+    },
+    setMode: function (mode) {
+      if (mode !== 'builder' && mode !== 'custom') throw makeError('mode', 'mode must be builder or custom');
+      return setStateField('mode', mode);
+    },
+    setCustomFilter: function (text) {
+      if (typeof text !== 'string') throw makeError('filter', 'custom filter must be a string');
+      return setStateField('customFilter', text);
+    },
+    setCollect: function (collect) {
+      if (typeof collect !== 'boolean') throw makeError('collect', 'collect must be boolean');
+      return setStateField('collect', collect);
+    },
+    run: run,
+    cancel: function () {
+      if (!active) return null;
+      return cancelActive('cancelled', 'run cancelled');
+    },
+    subscribe: function (listener) {
+      if (typeof listener !== 'function') throw new TypeError('listener must be a function');
+      subscribers.push(listener);
+      return function () {
+        var index = subscribers.indexOf(listener);
+        if (index >= 0) subscribers.splice(index, 1);
+      };
+    }
+  };
+
+  root.JQApp = app;
+})(typeof globalThis === 'object' ? globalThis : this);
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d0f14;--surface:#14171f;--surface2:#1c2030;--surface3:#252a3d;--border:rgba(255,255,255,.09);--strong:rgba(255,255,255,.16);--text:#e8eaf0;--muted:#9298a8;--dim:#686f82;--accent:#4fd1c5;--accent-dim:rgba(79,209,197,.12);--amber:#f6ad55;--red:#ef6b6b;--purple:#b794f6;--sans:'IBM Plex Sans',system-ui,sans-serif;--mono:'JetBrains Mono',monospace}*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 10% -10%,rgba(79,209,197,.09),transparent 36%),var(--bg);color:var(--text);font:14px/1.55 var(--sans);min-height:100vh}button,input,select,textarea{font:inherit;color:inherit}button,select,input,textarea{background:var(--surface2);border:1px solid var(--strong);border-radius:6px;padding:9px 11px}button{cursor:pointer;transition:background .16s,border-color .16s,transform .16s}button:hover{border-color:var(--accent);background:#222a36}button:active{transform:translateY(1px)}:focus-visible{outline:2px solid var(--accent);outline-offset:2px}a{color:var(--accent);text-decoration:none}.topbar{height:60px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 max(22px,calc((100vw - 1240px)/2));gap:13px;background:rgba(20,23,31,.88)}.topbar .brand{font-weight:700;letter-spacing:-.02em}.eyebrow,.mono{font-family:var(--mono);font-size:11px;letter-spacing:.05em;color:var(--dim)}.topbar .tag{margin-left:auto}.page{max-width:1240px;padding:38px 24px 72px;margin:auto}.hero{display:flex;justify-content:space-between;align-items:end;gap:24px;margin-bottom:30px}.hero h1{font-size:clamp(30px,5vw,49px);line-height:1.08;letter-spacing:-.045em;margin:8px 0 10px}.hero p{color:var(--muted);margin:0;max-width:620px}.hero .hero-mark{font:600 12px var(--mono);color:var(--accent);border:1px solid rgba(79,209,197,.3);background:var(--accent-dim);padding:9px 12px;border-radius:99px;white-space:nowrap}.workspace{display:grid;grid-template-columns:minmax(270px,.76fr) minmax(0,1.4fr);gap:18px;align-items:start}.column{display:grid;gap:18px}.card{background:linear-gradient(145deg,rgba(255,255,255,.018),transparent 58%),var(--surface);border:1px solid var(--border);border-radius:10px;padding:19px;box-shadow:0 15px 45px rgba(0,0,0,.12);min-width:0}.card-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}.card h2{font-size:15px;margin:0;font-weight:600}.stepno{font:11px var(--mono);color:var(--accent);letter-spacing:.1em}.hint{font-size:12px;color:var(--muted);margin:5px 0 13px}.field{display:grid;gap:6px;min-width:0}.field label,.label{font-size:12px;color:var(--muted)}textarea{resize:vertical;min-height:115px;width:100%;font:12px/1.6 var(--mono);tab-size:2}#input-text{min-height:220px}#custom-filter{min-height:140px}input,select{min-width:0;width:100%}.row{display:flex;gap:9px;align-items:end}.row>*{flex:1}.input-tools{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;margin-top:10px}.upload{display:flex;align-items:center;gap:8px}.upload input{max-width:190px;padding:6px}.tabs{display:flex;padding:4px;background:#101219;border:1px solid var(--border);border-radius:8px;gap:3px;margin-bottom:14px}.tabs button{flex:1;background:transparent;border-color:transparent;color:var(--muted);font-weight:600}.tabs button[aria-pressed=true]{background:var(--accent-dim);border-color:rgba(79,209,197,.27);color:var(--accent)}.rule{border-top:1px solid var(--border);margin:16px 0}.path-select{display:grid;grid-template-columns:1fr auto;gap:7px}.path-select button{white-space:nowrap}.group{border:1px solid var(--border);background:rgba(255,255,255,.018);border-radius:8px;padding:12px;margin:10px 0}.group-top{display:flex;align-items:center;gap:8px;margin-bottom:9px}.group-top select{width:auto}.group-top .spacer{flex:1}.leaf{display:grid;grid-template-columns:minmax(110px,1fr) minmax(100px,.8fr) minmax(100px,1fr) auto;gap:7px;align-items:center;margin:8px 0;padding:9px;background:#11141b;border-radius:7px}.leaf input,.leaf select{padding:8px;font-size:12px}.leaf .path-field{grid-column:1/-1}.leaf .delete,.step .delete,.alias .delete{color:var(--red);padding:7px 10px}.children{padding-left:10px;border-left:1px solid var(--strong)}.actions{display:flex;flex-wrap:wrap;gap:8px}.primary{background:var(--accent);border-color:var(--accent);color:#071514;font-weight:700}.primary:hover{background:#76e4d9}.quiet{color:var(--muted)}.warning{color:var(--amber);background:rgba(246,173,85,.09);border:1px solid rgba(246,173,85,.2);padding:9px 11px;border-radius:7px;font-size:12px;margin-top:9px}.step{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin:8px 0;padding:11px;background:#11141b;border:1px solid var(--border);border-radius:7px}.step .wide{grid-column:1/-1}.alias{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin:8px 0}.generated{min-height:160px;max-height:360px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#0d1016;border:1px solid var(--border);padding:13px;border-radius:7px;color:#b8c5d6;font:11px/1.65 var(--mono)}.runbar{display:flex;gap:8px;align-items:center;margin:13px 0}.runbar button{min-width:84px}.status{margin-left:auto;color:var(--muted);font:11px var(--mono)}.status[data-state=error],.status[data-state=timeout]{color:var(--red)}.status[data-state=truncated]{color:var(--amber)}.status[data-state=complete]{color:var(--accent)}.output{min-height:150px;max-height:380px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#0b0d12;border-radius:7px;border:1px solid var(--border);padding:14px;font:12px/1.6 var(--mono);color:#c7d3e2}.mode-panel[hidden]{display:none!important}.smallprint{font-size:11px;color:var(--dim);line-height:1.5}.mode-label{font:11px var(--mono);color:var(--purple)}.source-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.source-grid .full{grid-column:1/-1}.suggestion{margin-top:6px;color:var(--dim);font-size:11px}.inline{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px}.inline input{width:auto;accent-color:var(--accent)}.focus-note{color:var(--muted);font-size:11px}
+@media(max-width:850px){.workspace{grid-template-columns:1fr}.page{padding:28px 16px 48px}.hero{align-items:start;flex-direction:column}.hero .hero-mark{display:none}.topbar{padding:0 16px}}
+@media(max-width:520px){.card{padding:15px}.page{padding:22px 12px 40px}.source-grid{grid-template-columns:1fr}.source-grid .full{grid-column:auto}.leaf{grid-template-columns:1fr 1fr}.leaf .path-field{grid-column:1/-1}.step{grid-template-columns:1fr 1fr}.step .delete{grid-column:1/-1}.input-tools{grid-template-columns:1fr}.upload{align-items:start;flex-direction:column}.row{align-items:stretch;flex-direction:column}.tabs button{padding:8px 4px;font-size:12px}.runbar{flex-wrap:wrap}.status{width:100%;margin:3px 0 0}.alias{grid-template-columns:1fr 1fr}.alias .delete{grid-column:1/-1}}
+.export-actions{align-items:center}.export-fallback{width:100%;min-height:100px;margin:8px 0;font:12px/1.5 var(--mono);resize:vertical}.recipe-tools,.command-tools{margin-top:14px;padding:13px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.02)}.recipe-tools summary,.command-tools summary{cursor:pointer;color:var(--accent);font-weight:600}.recipe-tools .upload{min-width:170px}.recipe-tools input[type=file]{max-width:100%}#command-preview{white-space:pre-wrap;overflow-wrap:anywhere;min-height:40px;margin:10px 0 0}
+</style>
+<style>
+[hidden],.mode-panel[hidden]{display:none!important}
+.input-tools{grid-template-columns:1fr}
+.upload{display:grid;grid-template-columns:70px minmax(0,1fr);align-items:center}
+.upload input{width:100%;min-width:0;max-width:none}
+</style>
+<header class="topbar"><a href="../index.html" class="mono">TOOLS</a><span class="mono">/</span><span class="brand">jq builder</span><span class="tag mono">LOCAL EXECUTION</span></header>
+<main class="page">
+  <section class="hero"><div><div class="eyebrow">A VISUAL WORKBENCH FOR JQ</div><h1>Shape your data.<br>Keep the filter.</h1><p>Choose records, describe what should match, then transform or project the result. Nothing runs until you press Run.</p></div><div class="hero-mark">PRIVATE BY DESIGN - NO UPLOADS</div></section>
+  <div class="workspace">
+    <div class="column" data-testid="input-workspace">
+      <section class="card"><div class="card-head"><h2><span class="stepno">01</span> &nbsp;Your input</h2><span class="mono">5 MiB MAX</span></div><p class="hint">Edit the example or paste your own data. Input stays in this tab and is never saved.</p><div class="field"><label for="input-text">JSON data</label><textarea id="input-text" spellcheck="false" aria-describedby="input-help"></textarea></div><div class="input-tools"><div class="field"><label for="input-format">Input format</label><select id="input-format"><option value="json">JSON</option><option value="jsonc">JSONC (comments, trailing commas)</option><option value="jsonl">JSONL (one value per line)</option></select></div><label class="upload" for="input-file"><span class="label">Open file</span><input id="input-file" type="file" accept=".json,.jsonc,.jsonl,application/json,text/plain"></label></div><p id="input-help" class="smallprint">Choose the format explicitly. Invalid drafts stay editable, but cannot run.</p><div id="input-warning" class="warning" hidden></div></section>
+      <section class="card"><div class="card-head"><h2><span class="stepno">02</span> &nbsp;Choose records</h2></div><p class="hint">Start at the root value, or select each item in an array. Path suggestions follow this source.</p><div class="source-grid"><div class="field"><label for="source-kind">Record source</label><select id="source-kind"><option value="root">Root value</option><option value="items">Items in array</option></select></div><div class="field"><label for="source-path">Array path</label><div class="path-select"><input id="source-path" aria-label="Array source path" placeholder='e.g. ["teams",0,"members"]'><button type="button" id="source-suggest">Suggest</button></div></div></div><p class="smallprint">Use a JSON path array to distinguish an index from a numeric-looking key: <code>[0]</code> is an index, <code>["0"]</code> is a string key. Quoted, dotted, empty, and prototype-named keys are supported.</p><div id="source-suggestions" class="suggestion" aria-live="polite"></div></section>
+    </div>
+    <div class="column" data-testid="builder-workspace">
+      <section class="card"><div class="card-head"><h2><span class="stepno">03</span> &nbsp;Build the filter</h2><span class="mode-label" id="mode-caption">GUIDED BUILDER</span></div><div class="tabs" role="group" aria-label="Filter mode"><button id="builder-mode" type="button" aria-pressed="true">Builder</button><button id="custom-mode" type="button" aria-pressed="false">Custom jq</button></div>
+        <div id="builder-panel" class="mode-panel"><p class="hint">Conditions select input records first. Missing values and type mismatches do not match ordinary checks.</p><div class="field"><label>Match when</label><div id="condition-list"></div></div><div class="actions"><button type="button" id="add-condition">+ Condition</button><button type="button" id="add-group">+ AND / OR group</button></div><p class="smallprint">Empty AND matches all; empty OR matches none. For array checks, any is false and all is true on an empty array. NOT negates normally, including a missing-field non-match. A present null is different from a missing key.</p><div id="condition-warning" class="warning" hidden></div>
+          <div class="rule"></div><div class="card-head"><h2>Then transform</h2><span class="mono">ORDERED STEPS</span></div><p class="hint">Steps act on the previous step's output. Emit changes its value; Update changes a path on the record.</p><div id="step-list"></div><div class="actions"><button type="button" id="add-step">+ Add transformation</button></div><p class="smallprint">Regex uses jq's Oniguruma syntax and flags (g, i, m, s, p, x). Match emits match objects; capture emits named groups. Update preserves the field for no matches and collects multiple matches into an array. Replacement text is literal except for <code>\(.name)</code> or quoted named fields such as <code>\(.["first_name"])</code>; arbitrary jq expressions are custom-only.</p>
+           <div class="rule"></div><div class="card-head"><h2>Choose output</h2><label class="inline"><input id="projection-toggle" type="checkbox"> Select fields</label></div><div id="projection-list"></div><div id="projection-actions" class="actions" hidden><button type="button" id="add-projection">+ Output field</button></div><p class="smallprint">Without a projection, the whole matching value is returned. Missing projected paths become null.</p></div>
+        <div id="builder-warning" class="warning" role="alert" hidden></div><div id="custom-panel" class="mode-panel" hidden><p class="hint">Write any jq filter supported by the bundled runtime. It runs once per input value; it is not parsed back into builder controls.</p><div class="field"><label for="custom-filter">Custom jq filter</label><textarea id="custom-filter" spellcheck="false"></textarea></div></div>
+      </section>
+       <section class="card"><div class="card-head"><h2><span class="stepno">04</span> &nbsp;Review and run</h2><label class="inline"><input type="checkbox" id="collect-output"> Collect into array</label></div><p class="hint">Streaming is the default. Collection wraps every result in one array, across all JSONL inputs.</p><div class="field"><label for="generated-filter">Generated jq <span class="quiet">(read-only)</span></label><pre id="generated-filter" class="generated" tabindex="0"></pre></div><div class="runbar"><button type="button" id="run-query" class="primary">Run</button><button type="button" id="cancel-query" disabled>Cancel</button><button type="button" id="copy-generated">Copy to custom</button><span id="run-status" class="status" role="status" aria-live="polite" data-state="idle">READY - NOT RUN</span></div><div class="field"><label for="query-output">Result preview</label><pre id="query-output" class="output"></pre></div><div id="run-warning" class="warning" hidden></div>
+         <div class="rule"></div><div class="card-head"><h2>Export and reuse</h2><span class="mono">LOCAL FILES</span></div><div class="actions export-actions"><button type="button" id="copy-filter">Copy active filter</button><button type="button" id="copy-command">Copy POSIX command</button></div><details class="command-tools"><summary>View command (uses input.json)</summary><pre id="command-preview" class="generated" aria-label="POSIX command preview"></pre></details><div id="conversion-warning" class="warning" hidden>jq cannot read JSONC. Download the normalized strict JSON file before running the command.</div><textarea id="export-fallback" class="export-fallback" aria-label="Copy text fallback" readonly hidden></textarea><p id="export-feedback" class="smallprint" role="status" aria-live="polite"></p>
+         <div class="actions export-actions"><button type="button" id="copy-results">Copy complete results</button><button type="button" id="download-result">Download complete result</button><button type="button" id="download-input">Download input (.json)</button></div><p id="result-export-note" class="smallprint">Copy and download are available only for a current, successful run.</p>
+         <details class="recipe-tools"><summary>Reusable recipe</summary><p class="smallprint">Recipes can contain sensitive filter literals.</p><label class="inline" for="recipe-include-input"><input type="checkbox" id="recipe-include-input"> Include raw input in recipe</label><div class="actions export-actions"><button type="button" id="download-recipe">Download recipe (JSON)</button><label class="upload" for="recipe-file"><span class="label">Import recipe</span><input id="recipe-file" type="file" accept=".json,application/json"></label></div><div id="recipe-warning" class="warning" role="alert" hidden></div></details>
+         <p class="smallprint">Selection failures are ordinary non-matches. Transformation errors stop the run. Runs time out after 5 seconds; previews cap at 1 MiB or 1,000 values. The runtime buffers output before preview limits apply. A truncated result is incomplete and must not be treated as a full result.</p></section>
+    </div>
+  </div>
+</main>
+<script id="jq-ui">
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const app = window.JQApp;
+  const sample = '{\n  "team": "north",\n  "members": [\n    {"name":"Ada Lovelace","role":"engineer","active":true,"score":98,"profile":{"city":"London"}},\n    {"name":"Grace Hopper","role":"captain","active":true,"score":91,"profile":{"city":"Arlington"}},\n    {"name":"Linus Torvalds","role":"engineer","active":false,"score":null}\n  ],\n  "labels": {"first.name":"Example","": "empty key"}\n}';
+  let state = app.getState();
+  let builder = state.builder;
+  state.inputText = sample; state.format = 'json'; state.builder.condition = {kind:'group',op:'and',children:[]};
+  app.setInput(sample, 'json'); app.setBuilder(state.builder);
+  let suggestions = []; let rootSuggestions = []; let inputValid = true;
+  let builderError = ''; const pathErrors = new Map(); let currentRunStatus = 'idle'; let currentResult = null;
+  const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const pathText = (path) => JSON.stringify(path);
+  function parsePath(text) {
+    const trimmed = text.trim(); let parsed;
+    try { parsed = JSON.parse(trimmed || '[]'); } catch (_) { throw new TypeError('Use a JSON path array, for example ["name", 0].'); }
+    if (!Array.isArray(parsed) || !parsed.every((part) => typeof part === 'string' || Number.isInteger(part) && part >= 0)) throw new TypeError('Path entries must be strings or nonnegative integer indices in a JSON array.');
+    return parsed;
+  }
+  function parsedSamples() { try { return JQCore.normalizeInput($('input-text').value, $('input-format').value).samples; } catch (_) { return []; } }
+  function sourceSamples() { let samples = parsedSamples(); const b = builder; if (b.source.kind !== 'items') return samples; const path = b.source.path; const out=[]; samples.forEach((value)=>{ for(const part of path) value = value != null ? value[part] : undefined; if(Array.isArray(value)) out.push(...value.slice(0,100)); }); return out; }
+  function refreshSuggestions() { if(inputValid){try{rootSuggestions=JQCore.suggestPaths(parsedSamples()).paths;suggestions=JQCore.suggestPaths(sourceSamples()).paths;}catch(_){rootSuggestions=[];suggestions=[];}}renderSuggestions();renderConditions();renderSteps();renderProjection(); }
+  function renderSuggestions() { $('source-suggestions').textContent = !inputValid ? `Suggestions reflect the last valid input, not this draft. ${suggestions.length} previous paths remain available; manual paths are supported.` : suggestions.length ? `${suggestions.length} bounded path suggestions, relative to ${builder.source.kind === 'items' ? 'each selected array item' : 'the root value'}.` : 'No paths suggested for this value. Manual paths are supported.'; }
+  function suggestionSelect(path, label, pool) { const choices=pool||suggestions;const select=document.createElement('select');select.setAttribute('aria-label',label);select.innerHTML='<option value="">Choose suggested path</option>'+choices.map((p,i)=>`<option value="${i}">${escapeHtml(pathText(p))}</option>`).join('');select.addEventListener('change',()=>{if(select.value!==''){path.value=pathText(choices[Number(select.value)]);path.dispatchEvent(new Event('change',{bubbles:true}));}});return select; }
+  function makePathField(path,label,pool,context) { const wrap=document.createElement('div');wrap.className='path-field';wrap.classList.add('field');const lab=document.createElement('label');const id='path-'+context.replace(/[^a-zA-Z0-9_-]/g,'-');lab.htmlFor=id;lab.textContent=label;const row=document.createElement('div');row.className='path-select';path.id=id;path.dataset.testid='condition-path';path.setAttribute('aria-label',`${context} ${label.toLowerCase()}`);const suggestions=suggestionSelect(path,`${context} ${label.toLowerCase()} suggestions`,pool);suggestions.dataset.testid='condition-path-suggestions';row.append(path,suggestions);wrap.append(lab,row);return wrap; }
+  function arrayChildRecords(arrayPath,records) { const values=[];(records||[]).forEach((record)=>{let value=record;for(const part of arrayPath||[])value=value!=null?value[part]:undefined;if(Array.isArray(value))values.push(...value.slice(0,100));});return values; }
+  function conditionAt(path) { let condition=builder.condition; for (const part of path) condition=part==='child'?condition.child:condition.children[part]; return condition; }
+   function canonicalLeafOperation(current,nextOp){const next={kind:'leaf',path:current.path,op:nextOp};if(nextOp==='regex'){next.value=typeof current.value==='string'?current.value:'';next.flags=typeof current.flags==='string'?current.flags:'';}else if(nextOp==='any'||nextOp==='all'){next.child=current.child||{kind:'leaf',path:[],op:'exists'};}else if(!['exists','missing','null'].includes(nextOp)){next.value=nextOp==='type'?(typeof current.value==='string'?current.value:'string'):(Object.prototype.hasOwnProperty.call(current,'value')?current.value:'');}return next;}
+   function remapConditionErrors(transform){const next=new Map();pathErrors.forEach((message,key)=>{if(!key.startsWith('condition:')){next.set(key,message);return;}let oldPath;try{oldPath=JSON.parse(key.slice('condition:'.length));}catch(_){return;}const mapped=transform(oldPath);if(mapped===null)return;try{if(conditionAt(mapped)?.kind!=='leaf')return;}catch(_){return;}next.set('condition:'+JSON.stringify(mapped),message);});pathErrors.clear();next.forEach((message,key)=>pathErrors.set(key,message));}
+   function reconcileConditionErrors(){remapConditionErrors((path)=>path);}
+   function remapConditionErrorsAfterRemoval(removedPath){remapConditionErrors((path)=>{if(path.length>=removedPath.length&&removedPath.every((part,index)=>path[index]===part))return null;const parent=removedPath.slice(0,-1);const removedIndex=removedPath[removedPath.length-1];if(typeof removedIndex==='number'&&path.length>parent.length&&parent.every((part,index)=>path[index]===part)&&typeof path[parent.length]==='number'&&path[parent.length]>removedIndex){const mapped=path.slice();mapped[parent.length]-=1;return mapped;}return path;});}
+   function remapConditionErrorsAfterWrap(groupPath){remapConditionErrors((path)=>{if(path.length>groupPath.length&&groupPath.every((part,index)=>path[index]===part)&&typeof path[groupPath.length]==='number')return groupPath.concat(0,path.slice(groupPath.length));return path;});}
+   function clearProjectionErrors(){Array.from(pathErrors.keys()).filter((key)=>key.startsWith('projection:')).forEach((key)=>pathErrors.delete(key));}
+   function remapProjectionErrorsAfterRemoval(index){const next=new Map();pathErrors.forEach((message,key)=>{if(!key.startsWith('projection:')){next.set(key,message);return;}const old=Number(key.slice('projection:'.length));if(old===index)return;if(old>index)next.set('projection:'+(old-1),message);else next.set(key,message);});pathErrors.clear();next.forEach((message,key)=>pathErrors.set(key,message));}
+   function remapStepErrorsAfterRemoval(index){const next=new Map();pathErrors.forEach((message,key)=>{if(!key.startsWith('step:')){next.set(key,message);return;}const old=Number(key.slice('step:'.length));if(old===index)return;if(old>index)next.set('step:'+(old-1),message);else next.set(key,message);});pathErrors.clear();next.forEach((message,key)=>pathErrors.set(key,message));}
+   function swapStepErrors(first,second){const firstKey='step:'+first;const secondKey='step:'+second;const firstMessage=pathErrors.get(firstKey);const secondMessage=pathErrors.get(secondKey);pathErrors.delete(firstKey);pathErrors.delete(secondKey);if(firstMessage!==undefined)pathErrors.set(secondKey,firstMessage);if(secondMessage!==undefined)pathErrors.set(firstKey,secondMessage);}
+  function pathFailure(error,key) { pathErrors.set(key,error.message); renderGenerated(); }
+  const leafOps=[['eq','equals'],['ne','does not equal'],['lt','less than'],['le','at most'],['gt','greater than'],['ge','at least'],['exists','exists'],['missing','is missing'],['null','is null'],['type','has type'],['contains','contains'],['startsWith','starts with'],['endsWith','ends with'],['regex','matches regex'],['any','any array item'],['all','all array items']];
+  function leafNode(leaf, path, pool, records) {
+    const context=`Condition ${path.length?path.map((part)=>typeof part==='number'?part+1:part).join('.'):'root'}`;const node=document.createElement('div');node.className='leaf';node.dataset.conditionPath=JSON.stringify(path);const pathInput=document.createElement('input');pathInput.value=pathText(leaf.path||[]);node.append(makePathField(pathInput,'Field path',pool,context));
+    const op=document.createElement('select');op.dataset.testid='condition-operation';op.setAttribute('aria-label',`${context} operation`);op.innerHTML=leafOps.map(([v,t])=>`<option value="${v}">${t}</option>`).join('');op.value=leaf.op;node.append(op);
+    let valueInput=null;if(!['exists','missing','null','any','all'].includes(leaf.op)){valueInput=document.createElement('input');valueInput.dataset.testid=leaf.op==='regex'?'condition-regex-pattern':'condition-value';valueInput.setAttribute('aria-label',`${context} ${leaf.op==='regex'?'regex pattern':'comparison value'}`);valueInput.value=leaf.op==='type'?(leaf.value||'string'):typeof leaf.value==='string'?leaf.value:JSON.stringify(leaf.value===undefined?'':leaf.value);node.append(valueInput);}
+    let flagsInput=null;if(leaf.op==='regex'){flagsInput=document.createElement('input');flagsInput.dataset.testid='condition-regex-flags';flagsInput.setAttribute('aria-label',`${context} regex flags`);flagsInput.value=leaf.flags||'';flagsInput.placeholder='gims px';node.append(flagsInput);}
+    const requiredChild=path[path.length-1]==='child'&&['any','all'].includes(conditionAt(path.slice(0,-1))?.op);const remove=document.createElement('button');remove.type='button';remove.className='delete';remove.textContent=requiredChild?'Required':'Remove';remove.disabled=requiredChild;remove.dataset.testid='condition-remove';remove.setAttribute('aria-label',requiredChild?`${context} is the required array condition`:`Remove ${context}`);remove.addEventListener('click',()=>{removeCondition(path);renderConditions();$('add-condition').focus();});node.append(remove);
+    const pathErrorKey='condition:'+JSON.stringify(path);const commitPath=()=>{try{conditionAt(path).path=parsePath(pathInput.value);pathErrors.delete(pathErrorKey);saveBuilder();}catch(error){pathFailure(error,pathErrorKey);}};
+    pathInput.addEventListener('change',commitPath);
+     op.addEventListener('change',()=>{const current=conditionAt(path);const replacement=canonicalLeafOperation(current,op.value);Object.keys(current).forEach((key)=>delete current[key]);Object.assign(current,replacement);reconcileConditionErrors();saveBuilder();renderConditions();uiConditionAtPath(path)?.focus();});
+     if(valueInput)valueInput.addEventListener('change',()=>{const current=conditionAt(path);if(current.op==='regex'||current.op==='type')current.value=valueInput.value;else{try{current.value=JSON.parse(valueInput.value);}catch(_){current.value=valueInput.value;}}saveBuilder();});
+    if(flagsInput)flagsInput.addEventListener('change',()=>{conditionAt(path).flags=flagsInput.value;saveBuilder();});
+    if(['any','all'].includes(leaf.op)){
+      const child=document.createElement('div');child.className='children array-child';const childPath=path.concat('child');
+      if(leaf.child&&leaf.child.kind==='leaf'){const groupButton=document.createElement('button');groupButton.type='button';groupButton.textContent='Use compound predicate';groupButton.dataset.testid='condition-group-array';groupButton.setAttribute('aria-label',`Make ${context} array condition compound`);groupButton.addEventListener('click',()=>{const current=conditionAt(path);current.child={kind:'group',op:'and',children:[current.child]};saveBuilder();renderConditions();});child.append(groupButton);}
+      const childRecords=arrayChildRecords(leaf.path,records);let childPool=[];try{childPool=JQCore.suggestPaths(childRecords).paths;}catch(_){}child.append(renderConditionTree(leaf.child||{kind:'leaf',path:[],op:'exists'},childPath,childPool,childRecords));node.append(child);
+    }
+    return node;
+  }
+  function uiConditionAtPath(path){return Array.from($('condition-list').querySelectorAll('.leaf')).find((leaf)=>leaf.dataset.conditionPath===JSON.stringify(path))?.querySelector('[data-testid="condition-operation"]')||null;}
+  function renderConditionTree(condition, path, pool, records) {
+    if(condition.kind==='leaf')return leafNode(condition,path,pool,records);
+    const box=document.createElement('div');box.className='group';box.dataset.conditionPath=JSON.stringify(path);const head=document.createElement('div');head.className='group-top';const label=document.createElement('span');label.className='label';label.textContent=path.length?'Nested group':'Root group';head.append(label);
+     const groupContext=`Group ${path.length?path.map((part)=>typeof part==='number'?part+1:part).join('.'):'root'}`;const select=document.createElement('select');select.dataset.testid='condition-group-logic';select.setAttribute('aria-label',`${groupContext} logic`);select.innerHTML='<option value="and">Match all (AND)</option><option value="or">Match any (OR)</option><option value="not">NOT one child</option>';select.value=condition.op;select.addEventListener('change',()=>{const current=conditionAt(path);const nextOp=select.value;if(nextOp==='not'&&current.children.length>1){const previousOp=current.op;current.children=[{kind:'group',op:previousOp==='not'?'and':previousOp,children:current.children}];remapConditionErrorsAfterWrap(path);}current.op=nextOp;builderError='';reconcileConditionErrors();saveBuilder();renderConditions();});head.append(select);
+    if(path.length){const requiredArrayGroup=path[path.length-1]==='child'&&['any','all'].includes(conditionAt(path.slice(0,-1))?.op);const rm=document.createElement('button');rm.type='button';rm.textContent=requiredArrayGroup?'Required':'Remove group';rm.disabled=requiredArrayGroup;rm.dataset.testid='condition-group-remove';rm.setAttribute('aria-label',requiredArrayGroup?`${groupContext} is the required array condition`:`Remove ${groupContext}`);rm.addEventListener('click',()=>{removeCondition(path);renderConditions();$('add-group').focus();});head.append(rm);}box.append(head);
+    const children=document.createElement('div');children.className='children';condition.children.forEach((child,index)=>children.append(renderConditionTree(child,path.concat(index),pool,records)));box.append(children);
+    const controls=document.createElement('div');controls.className='actions group-actions';const blocked=condition.op==='not'&&condition.children.length===1;
+    const addLeaf=document.createElement('button');addLeaf.type='button';addLeaf.textContent='+ Condition';addLeaf.dataset.testid='condition-add';addLeaf.setAttribute('aria-label',`Add condition to ${groupContext}`);addLeaf.disabled=blocked;addLeaf.addEventListener('click',()=>addConditionTo(path));controls.append(addLeaf);
+    const addNested=document.createElement('button');addNested.type='button';addNested.textContent='+ Group';addNested.dataset.testid='condition-add-group';addNested.setAttribute('aria-label',`Add nested group to ${groupContext}`);addNested.disabled=blocked;addNested.addEventListener('click',()=>addGroupTo(path));controls.append(addNested);box.append(controls);return box;
+  }
+  function newLeaf(){return {kind:'leaf',path:[],op:'exists'};}
+   function removeCondition(path){let node=builder.condition;for(let i=0;i<path.length-1;i++)node=path[i]==='child'?node.child:node.children[path[i]];if(path.length){const last=path[path.length-1];if(last==='child'){const parent=conditionAt(path.slice(0,-1));if(parent&&['any','all'].includes(parent.op))return;delete node.child;}else node.children.splice(last,1);remapConditionErrorsAfterRemoval(path);}saveBuilder();}
+  function renderConditions(){$('condition-list').replaceChildren(renderConditionTree(builder.condition,[],suggestions,sourceSamples()));const root=builder.condition.kind==='group'?builder.condition:null;const blocked=Boolean(root&&root.op==='not'&&root.children.length===1);$('add-condition').disabled=blocked;$('add-group').disabled=blocked;}
+  function saveBuilder(){app.setBuilder(builder);builder=app.getState().builder;renderWarnings();renderGenerated();}
+  function rootGroup(){if(builder.condition.kind!=='group')builder.condition={kind:'group',op:'and',children:[builder.condition]};return builder.condition;}
+  function addConditionTo(groupPath){if(!groupPath.length&&builder.condition.kind!=='group')rootGroup();const group=conditionAt(groupPath);if(group.op==='not'&&group.children.length===1)return;group.children.push(newLeaf());saveBuilder();renderConditions();const leaves=$('condition-list').querySelectorAll('.leaf select[data-testid="condition-operation"]');leaves[leaves.length-1]?.focus();}
+  function addGroupTo(groupPath){if(!groupPath.length&&builder.condition.kind!=='group')rootGroup();const group=conditionAt(groupPath);if(group.op==='not'&&group.children.length===1)return;group.children.push({kind:'group',op:'and',children:[newLeaf()]});saveBuilder();renderConditions();const groups=$('condition-list').querySelectorAll('.group select[data-testid="condition-group-logic"]');groups[groups.length-1]?.focus();}
+  $('add-condition').addEventListener('click',()=>addConditionTo([]));
+  $('add-group').addEventListener('click',()=>addGroupTo([]));
+  function renderSteps(){const list=$('step-list');list.replaceChildren();const b=builder;b.steps.forEach((step,index)=>{const row=document.createElement('div');row.className='step';const op=document.createElement('select');op.setAttribute('aria-label',`Transformation ${index+1}`);op.innerHTML='<option>match</option><option>capture</option><option>sub</option><option>gsub</option>';op.value=step.op;const mode=document.createElement('select');mode.setAttribute('aria-label',`Transformation ${index+1} behavior`);mode.innerHTML='<option value="emit">Emit value</option><option value="update">Update path</option>';mode.value=step.mode;const up=document.createElement('button');up.type='button';up.textContent='Move up';up.disabled=index===0;up.setAttribute('aria-label',`Move transformation ${index+1} up`);up.addEventListener('click',()=>{[builder.steps[index-1],builder.steps[index]]=[builder.steps[index],builder.steps[index-1]];swapStepErrors(index-1,index);saveBuilder();renderSteps();});const down=document.createElement('button');down.type='button';down.textContent='Move down';down.disabled=index===b.steps.length-1;down.setAttribute('aria-label',`Move transformation ${index+1} down`);down.addEventListener('click',()=>{[builder.steps[index+1],builder.steps[index]]=[builder.steps[index],builder.steps[index+1]];swapStepErrors(index,index+1);saveBuilder();renderSteps();});const path=document.createElement('input');path.value=pathText(step.path);path.setAttribute('aria-label',`Transformation ${index+1} path`);path.className='wide';const pattern=document.createElement('input');pattern.value=step.pattern;pattern.placeholder='Regex pattern';pattern.setAttribute('aria-label',`Transformation ${index+1} regex pattern`);const flags=document.createElement('input');flags.value=step.flags;flags.placeholder='gims px';flags.setAttribute('aria-label',`Transformation ${index+1} regex flags`);row.append(op,mode,up,down,path,pattern,flags);if(['sub','gsub'].includes(step.op)){const replacement=document.createElement('input');replacement.value=step.replacement||'';replacement.placeholder='Replacement (literal + \\(.name))';replacement.setAttribute('aria-label',`Transformation ${index+1} replacement`);replacement.className='wide';row.append(replacement);replacement.addEventListener('change',()=>{builder.steps[index].replacement=replacement.value;saveBuilder();});}const del=document.createElement('button');del.type='button';del.className='delete';del.textContent='Remove step';del.addEventListener('click',()=>{builder.steps.splice(index,1);remapStepErrorsAfterRemoval(index);saveBuilder();renderSteps();$('add-step').focus();});row.append(del);op.addEventListener('change',()=>{builder.steps[index].op=op.value;if(builder.steps[index].op==='sub'||builder.steps[index].op==='gsub')builder.steps[index].replacement=builder.steps[index].replacement||'';else delete builder.steps[index].replacement;saveBuilder();renderSteps();$('step-list').querySelector(`[aria-label="Transformation ${index+1}"]`)?.focus();});mode.addEventListener('change',()=>{builder.steps[index].mode=mode.value;saveBuilder();});path.addEventListener('change',()=>{try{builder.steps[index].path=parsePath(path.value);pathErrors.delete('step:'+index);saveBuilder();}catch(error){pathFailure(error,'step:'+index);}});pattern.addEventListener('change',()=>{builder.steps[index].pattern=pattern.value;saveBuilder();});flags.addEventListener('change',()=>{builder.steps[index].flags=flags.value;saveBuilder();});list.append(row);});}
+  $('add-step').addEventListener('click',()=>{builder.steps.push({op:'match',path:[],mode:'emit',pattern:'(?<name>\\w+)',flags:'g'});saveBuilder();renderSteps();const nodes=$('step-list').querySelectorAll('select[aria-label^="Transformation "]');nodes[nodes.length-2]?.focus();});
+   function renderProjection(){const b=builder;const enabled=b.projection!==null;$('projection-toggle').checked=enabled;$('projection-actions').hidden=!enabled;const list=$('projection-list');list.replaceChildren();(b.projection||[]).forEach((entry,index)=>{const row=document.createElement('div');row.className='alias';const name=document.createElement('input');name.value=entry.name;name.setAttribute('aria-label',`Output field ${index+1} name`);const path=document.createElement('input');path.value=pathText(entry.path);path.setAttribute('aria-label',`Output field ${index+1} path`);const del=document.createElement('button');del.type='button';del.className='delete';del.textContent='Remove';del.addEventListener('click',()=>{builder.projection.splice(index,1);remapProjectionErrorsAfterRemoval(index);saveBuilder();renderProjection();$('add-projection').focus();});name.addEventListener('change',()=>{builder.projection[index].name=name.value;saveBuilder();});path.addEventListener('change',()=>{try{builder.projection[index].path=parsePath(path.value);pathErrors.delete('projection:'+index);saveBuilder();}catch(error){pathFailure(error,'projection:'+index);}});row.append(name,path,del);list.append(row);});}
+   $('projection-toggle').addEventListener('change',()=>{builder.projection=$('projection-toggle').checked?[]:null;if(builder.projection===null)clearProjectionErrors();saveBuilder();renderProjection();});$('add-projection').addEventListener('click',()=>{builder.projection=builder.projection||[];builder.projection.push({name:'field',path:[]});saveBuilder();renderProjection();$('projection-list').lastElementChild?.querySelector('input')?.focus();});
+  function builderFilter(){try{return JQCore.compileBuilder(builder).filter;}catch(_){return null;}}
+  function activeEffectiveFilter(current){const raw=current.mode==='builder'?builderFilter():current.customFilter;if(current.mode==='builder'&&(builderError||raw===null))return null;return JQCore.effectiveFilter(raw,current.collect);}
+  function downloadFile(filename,content,type){const blob=new Blob([content],{type});const url=URL.createObjectURL(blob);const anchor=document.createElement('a');anchor.href=url;anchor.download=filename;anchor.hidden=true;document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),0);}
+  async function copyText(text){const fallback=$('export-fallback');fallback.hidden=true;try{if(!navigator.clipboard||typeof navigator.clipboard.writeText!=='function')throw new Error('Clipboard access is unavailable.');await navigator.clipboard.writeText(text);$('export-feedback').textContent='Copied to clipboard.';}catch(_){fallback.value=text;fallback.hidden=false;fallback.focus();fallback.select();$('export-feedback').textContent='Clipboard unavailable. Select and copy the text below.';}}
+  function renderExports(){const current=app.getState();const filter=activeEffectiveFilter(current);$('copy-filter').disabled=filter===null;$('copy-command').disabled=filter===null;$('command-preview').textContent=filter===null?'':JQCore.shellCommand(filter,'input.json');$('conversion-warning').hidden=current.format!=='jsonc';const inputExt=current.format==='jsonl'?'jsonl':'json';$('download-input').textContent=`Download input (.${inputExt})`;$('download-input').disabled=!inputValid;const resultReady=inputValid&&!(current.mode==='builder'&&builderError)&&currentRunStatus==='complete'&&currentResult?.status==='ok'&&currentResult.complete===true;$('copy-results').disabled=!resultReady;$('download-result').disabled=!resultReady;const resultExt=current.collect?'json':'jsonl';$('download-result').textContent=`Download complete result (.${resultExt})`;}
+  function renderGenerated(){const current=app.getState();const filter=builderFilter();builderError=pathErrors.values().next().value||(filter===null?'Review the builder fields and resolve the validation error.':'');const warning=$('builder-warning');warning.hidden=!builderError;warning.textContent=builderError;const raw=current.mode==='builder'?(filter||''):current.customFilter;$('generated-filter').textContent=current.mode==='builder'&&builderError?'':JQCore.effectiveFilter(raw,current.collect);$('copy-generated').disabled=current.mode==='builder'&&Boolean(builderError);$('run-query').disabled=!inputValid||(current.mode==='builder'&&Boolean(builderError))||currentRunStatus==='running';renderExports();}
+  function renderWarnings(){const missing=[];const walk=(condition,pool,records)=>{if(condition.kind==='leaf'){if(condition.path.length&&!pool.some((candidate)=>pathText(candidate)===pathText(condition.path)))missing.push(condition.path);if(condition.child){const nestedRecords=['any','all'].includes(condition.op)?arrayChildRecords(condition.path,records):records;let nestedPaths=[];try{nestedPaths=JQCore.suggestPaths(nestedRecords).paths;}catch(_){}walk(condition.child,nestedPaths,nestedRecords);}}else condition.children.forEach((child)=>walk(child,pool,records));};walk(builder.condition,suggestions,sourceSamples());$('condition-warning').hidden=!missing.length;$('condition-warning').textContent=missing.length?`${missing.length} condition path${missing.length===1?' is':'s are'} not in current suggestions for its record context. Conditions are kept; check the paths or continue if the data differs.`:'';}
+  function setMode(mode){app.setMode(mode);$('builder-mode').setAttribute('aria-pressed',String(mode==='builder'));$('custom-mode').setAttribute('aria-pressed',String(mode==='custom'));$('builder-panel').hidden=mode!=='builder';$('custom-panel').hidden=mode!=='custom';$('mode-caption').textContent=mode==='builder'?'GUIDED BUILDER':'CUSTOM FILTER';$('custom-filter').value=app.getState().customFilter;renderGenerated();}
+  function syncUIFromState(next){state=next;builder=next.builder;$('input-text').value=next.inputText;$('input-format').value=next.format;$('source-kind').value=next.builder.source.kind;$('source-path').value=pathText(next.builder.source.path);$('custom-filter').value=next.customFilter;$('collect-output').checked=next.collect;$('builder-mode').setAttribute('aria-pressed',String(next.mode==='builder'));$('custom-mode').setAttribute('aria-pressed',String(next.mode==='custom'));$('builder-panel').hidden=next.mode!=='builder';$('custom-panel').hidden=next.mode!=='custom';$('mode-caption').textContent=next.mode==='builder'?'GUIDED BUILDER':'CUSTOM FILTER';pathErrors.clear();try{if(new TextEncoder().encode(next.inputText).length>5*1024*1024)throw Error('Input exceeds the 5 MiB limit. Shorten it before running.');JQCore.normalizeInput(next.inputText,next.format);inputValid=true;invalidDraftMessage='';$('input-warning').hidden=true;}catch(error){inputValid=false;invalidDraftMessage=error.message;$('input-warning').hidden=false;$('input-warning').textContent=`Input draft is not valid ${next.format.toUpperCase()}: ${error.message}. Fix it before running; recipe settings are preserved.`;}refreshSuggestions();renderWarnings();renderGenerated();renderRunPresentation();}
+  $('copy-filter').addEventListener('click',async()=>{const text=activeEffectiveFilter(app.getState());if(text!==null)await copyText(text);});$('copy-command').addEventListener('click',async()=>{const text=activeEffectiveFilter(app.getState());if(text!==null)await copyText(JQCore.shellCommand(text,'input.json'));});
+  $('download-result').addEventListener('click',()=>{renderExports();if($('download-result').disabled)return;const current=app.getState();const extension=current.collect?'json':'jsonl';downloadFile(`jq-result.${extension}`,currentResult.outputText,'application/json;charset=utf-8');});
+  $('copy-results').addEventListener('click',async()=>{renderExports();if($('copy-results').disabled)return;await copyText(currentResult.outputText);});
+  $('download-input').addEventListener('click',()=>{renderExports();if($('download-input').disabled)return;const current=app.getState();let content=current.inputText;if(current.format==='jsonc')content=JQCore.normalizeInput(content,'jsonc').text;else content=JQCore.normalizeInput(content,current.format).text;const extension=current.format==='jsonl'?'jsonl':'json';downloadFile(`jq-input.${extension}`,content,'application/json;charset=utf-8');});
+  $('download-recipe').addEventListener('click',()=>{try{const includeInput=$('recipe-include-input').checked;const visibleText=$('input-text').value;const visibleFormat=$('input-format').value;if(includeInput&&new TextEncoder().encode(visibleText).length>5*1024*1024)throw Error('The visible input exceeds the 5 MiB limit. Shorten it before including input in the recipe.');const recipeState=app.getState();recipeState.format=visibleFormat;if(includeInput)recipeState.inputText=visibleText;const text=JQCore.exportRecipe(recipeState,includeInput);downloadFile('jq-recipe.json',text,'application/json;charset=utf-8');$('recipe-warning').hidden=true;}catch(error){$('recipe-warning').hidden=false;$('recipe-warning').textContent=error.message;}});
+   $('recipe-file').addEventListener('change',async()=>{const file=$('recipe-file').files[0];if(!file)return;try{const text=await file.text();const recipe=JQCore.importRecipe(text);if(!Object.prototype.hasOwnProperty.call(recipe,'inputText')&&new TextEncoder().encode($('input-text').value).byteLength>5*1024*1024)throw Error('Input-free recipe import is blocked while the visible input exceeds the 5 MiB limit. Shorten the draft first.');const next=app.applyRecipe(recipe);$('recipe-warning').hidden=true;syncUIFromState(next);}catch(error){$('recipe-warning').hidden=false;$('recipe-warning').textContent=`Recipe was not imported: ${error.message}`;}});
+  $('builder-mode').addEventListener('click',()=>setMode('builder'));$('custom-mode').addEventListener('click',()=>setMode('custom'));$('custom-filter').value=state.customFilter;$('custom-filter').addEventListener('input',()=>{app.setCustomFilter($('custom-filter').value);renderGenerated();});$('copy-generated').addEventListener('click',async()=>{const generated=builderFilter();if(builderError||generated===null)return;const s=app.getState();if(s.customFilter&&s.customFilter!=='.'&&s.customFilter!==generated&&!confirm('Replace your existing custom jq filter with the generated builder filter?'))return;app.setCustomFilter(generated);$('custom-filter').value=app.getState().customFilter;setMode('custom');});
+  $('source-kind').addEventListener('change',()=>{builder.source.kind=$('source-kind').value;saveBuilder();refreshSuggestions();});$('source-path').value='[]';$('source-path').addEventListener('change',()=>{try{builder.source.path=parsePath($('source-path').value);pathErrors.delete('source');saveBuilder();refreshSuggestions();}catch(error){pathFailure(error,'source');}});$('source-suggest').addEventListener('click',()=>{const path=rootSuggestions.find((p)=>{let value=parsedSamples()[0];for(const part of p)value=value?.[part];return Array.isArray(value);});if(path){$('source-path').value=pathText(path);$('source-path').dispatchEvent(new Event('change'));}});
+  $('builder-mode').setAttribute('aria-label','Use guided builder');$('custom-mode').setAttribute('aria-label','Use custom jq');
+   let invalidDraftMessage='';$('input-text').value=sample;$('input-text').addEventListener('input',updateInput);$('input-format').addEventListener('change',updateInput);function updateInput(){const text=$('input-text').value,format=$('input-format').value;try{if(new TextEncoder().encode(text).length>5*1024*1024)throw Object.assign(Error('Input exceeds the 5 MiB limit. Shorten it before running.'),{code:'INPUT_TOO_LARGE'});JQCore.normalizeInput(text,format);app.setInput(text,format);inputValid=true;invalidDraftMessage='';$('input-warning').hidden=true;refreshSuggestions();renderWarnings();}catch(error){if(error.code!=='INPUT_TOO_LARGE'){try{app.setInput(text,format);}catch(_){}}inputValid=false;invalidDraftMessage=error.message;app.cancel();$('input-warning').hidden=false;$('input-warning').textContent=`Input draft is not valid ${format.toUpperCase()}: ${error.message}. Fix it before running; builder and custom filters are preserved.`;renderSuggestions();renderWarnings();}renderGenerated();renderRunPresentation();}
+  $('input-file').addEventListener('change',async()=>{const file=$('input-file').files[0];if(!file)return;const text=await file.text();$('input-text').value=text;const ext=file.name.toLowerCase().split('.').pop();if(['json','jsonc','jsonl'].includes(ext))$('input-format').value=ext;updateInput();});
+  $('collect-output').addEventListener('change',()=>{app.setCollect($('collect-output').checked);renderGenerated();});$('run-query').addEventListener('click',async()=>{if(!inputValid||builderError){$('run-warning').hidden=false;$('run-warning').textContent=builderError||'Resolve the invalid input draft before running. No previous input will be used.';return;} $('run-warning').hidden=true;app.run();});$('cancel-query').addEventListener('click',()=>app.cancel());
+  const statusCopy={idle:'READY - NOT RUN',stale:'STALE - RUN AGAIN',running:'RUNNING - 5 SECOND LIMIT',complete:'COMPLETE',truncated:'TRUNCATED - INCOMPLETE',error:'ERROR - REVIEW DETAILS',timeout:'TIMEOUT - WORKER STOPPED',cancelled:'CANCELLED'};
+  function renderRunPresentation(){const invalid=!inputValid;if(invalid){$('run-status').textContent='STALE - INVALID INPUT';$('run-status').dataset.state='stale';$('query-output').textContent='';$('run-warning').hidden=false;$('run-warning').textContent=invalidDraftMessage||'Correct the input draft before running.';$('cancel-query').disabled=true;return;}const status=currentRunStatus;const result=currentResult;$('run-status').textContent=statusCopy[status]||String(status).toUpperCase();$('run-status').dataset.state=status;$('query-output').textContent=result&&result.outputText?result.outputText:status==='running'?'Waiting for jq...':'';const isTruncated=result&&result.status==='truncated';const hasError=result&&result.error;$('run-warning').hidden=!(isTruncated||hasError);if(isTruncated)$('run-warning').textContent='Preview truncated by output limits. This is not the complete result.';else if(hasError)$('run-warning').textContent=`${result.error.stage||status}: ${result.error.message}${result.complete===false&&result.outputText?' (partial output is not complete)':''}`;$('cancel-query').disabled=status!=='running';}
+  app.subscribe((next,status,result)=>{state=next;builder=next.builder;currentRunStatus=status;currentResult=result;renderRunPresentation();renderGenerated();});
+  $('source-kind').value=state.builder.source.kind;$('source-path').value=pathText(state.builder.source.path);$('collect-output').checked=state.collect;refreshSuggestions();renderConditions();renderSteps();renderProjection();renderGenerated();
+  document.documentElement.dataset.uiReady='true';
+})();
+</script>
