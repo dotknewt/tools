@@ -30,11 +30,56 @@
     });
   }
 
+  async function controllerHarness() {
+    const html = await fetch('../index.html').then((response) => response.text());
+    const coreSource = html.match(/<script id="jq-core">([\s\S]*?)<\/script>/)[1];
+    const controllerSource = html.match(/<script id="jq-controller">([\s\S]*?)<\/script>/)[1];
+    const workers = [];
+    const timers = [];
+    class FakeWorker {
+      constructor() {
+        this.listeners = { message: [], error: [] };
+        this.terminated = false;
+        this.postCount = 0;
+        workers.push(this);
+      }
+      addEventListener(type, listener) { this.listeners[type].push(listener); }
+      postMessage(message) { this.postCount += 1; this.request = message; }
+      terminate() { this.terminated = true; }
+      reply(message) { this.listeners.message.slice().forEach((listener) => listener({ data: message })); }
+      fail(message) { this.listeners.error.slice().forEach((listener) => listener({ message })); }
+    }
+    const root = {
+      Worker: FakeWorker,
+      TextEncoder,
+      TextDecoder,
+      setTimeout(callback, delay) {
+        const timer = { callback, delay, cancelled: false };
+        timers.push(timer);
+        return timer;
+      },
+      clearTimeout(timer) { if (timer) timer.cancelled = true; }
+    };
+    Function('globalThis', coreSource)(root);
+    Function('globalThis', controllerSource)(root);
+    return {
+      app: root.JQApp,
+      workers,
+      timers,
+      fireTimer(timer) { if (timer && !timer.cancelled) timer.callback(); }
+    };
+  }
+
   async function main() {
     try {
       await new Promise((resolve, reject) => {
-        frame.addEventListener('load', resolve, { once: true });
-        frame.addEventListener('error', () => reject(new Error('application frame failed')), { once: true });
+        const deadline = Date.now() + 3000;
+        const poll = () => {
+          if (frame.contentWindow.JQApp) return resolve();
+          if (Date.now() >= deadline) return reject(new Error('application frame failed to load'));
+          setTimeout(poll, 10);
+        };
+        poll();
       });
       const app = frame.contentWindow.JQApp;
       check('JQApp exposes the requested methods', app && ['getState', 'setInput', 'setBuilder', 'setMode', 'setCustomFilter', 'setCollect', 'run', 'cancel', 'subscribe'].every((name) => typeof app[name] === 'function'));
@@ -94,6 +139,69 @@
       const current = await app.run();
       const old = await superseded;
       check('cancelled or older run replies cannot replace current output', current.status === 'ok' && current.outputText === '1' && old.status === 'cancelled', JSON.stringify({ old, current }));
+
+      const harness = await controllerHarness();
+      const fakeApp = harness.app;
+      const malformedBuilder = JSON.stringify(fakeApp.getState().builder);
+      let malformedAccepted = true;
+      try { fakeApp.setInput('{', 'json'); } catch (error) { malformedAccepted = false; }
+      const malformedState = fakeApp.getState();
+      const malformedResult = await fakeApp.run();
+      check('malformed input remains editable until Run', malformedAccepted && malformedState.inputText === '{' && malformedResult.status === 'error' && malformedResult.error.stage === 'input' && JSON.stringify(malformedState.builder) === malformedBuilder, JSON.stringify(malformedResult));
+
+      const exactFiveMiB = '\u00e9'.repeat(2621440);
+      let exactAccepted = true;
+      try { fakeApp.setInput(exactFiveMiB, 'jsonl'); } catch (error) { exactAccepted = false; }
+      let aboveRejected = false;
+      try { fakeApp.setInput(exactFiveMiB + 'x', 'jsonl'); } catch (error) { aboveRejected = error && error.code === 'INPUT_TOO_LARGE'; }
+      check('UTF-8 input accepts exactly 5 MiB and rejects one byte above', exactAccepted && aboveRejected && fakeApp.getState().inputText === exactFiveMiB, JSON.stringify({ exactAccepted, aboveRejected }));
+
+      fakeApp.setInput('1', 'jsonl');
+      const atomicEvents = [];
+      const removeAtomic = fakeApp.subscribe((nextState, status, nextResult) => atomicEvents.push({ revision: nextState.revision, inputText: nextState.inputText, status, result: nextResult }));
+      const atomicRun = fakeApp.run();
+      const atomicWorker = harness.workers[harness.workers.length - 1];
+      atomicEvents.length = 0;
+      fakeApp.setInput('2', 'jsonl');
+      const atomicCancelled = await atomicRun;
+      removeAtomic();
+      check('state mutation and cancellation publish one coherent transition', atomicCancelled.status === 'cancelled' && atomicEvents.length === 1 && atomicEvents[0].revision === fakeApp.getState().revision && atomicEvents[0].inputText === '2' && atomicEvents[0].status === 'stale' && atomicEvents[0].result === null && atomicWorker.terminated, JSON.stringify({ atomicCancelled, atomicEvents }));
+      atomicWorker.reply({ type: 'result', id: atomicWorker.request && atomicWorker.request.id, revision: atomicWorker.request && atomicWorker.request.revision, status: 'ok', outputText: '999', valueCount: 1 });
+      check('late reply from terminated worker is ignored', fakeApp.getState().inputText === '2' && fakeApp.getState().revision === atomicEvents[0].revision, JSON.stringify(fakeApp.getState()));
+
+      const cancelRun = fakeApp.run();
+      const cancelWorker = harness.workers[harness.workers.length - 1];
+      const cancelled = fakeApp.cancel();
+      cancelWorker.reply({ type: 'result', id: cancelWorker.request.id, revision: cancelWorker.request.revision, status: 'ok', outputText: 'orphan', valueCount: 1 });
+      const cancelResult = await cancelRun;
+      check('explicit cancel terminates and ignores a late reply', cancelled.status === 'cancelled' && cancelResult.status === 'cancelled' && cancelWorker.terminated && fakeApp.getState().inputText === '2', JSON.stringify({ cancelled, cancelResult }));
+
+      const errorRun = fakeApp.run();
+      const errorWorker = harness.workers[harness.workers.length - 1];
+      errorWorker.fail('synthetic worker failure');
+      const workerError = await errorRun;
+      const recoveryRun = fakeApp.run();
+      const recoveryWorker = harness.workers[harness.workers.length - 1];
+      recoveryWorker.reply({ type: 'result', id: recoveryWorker.request.id, revision: recoveryWorker.request.revision, status: 'ok', outputText: '2', valueCount: 1 });
+      const workerRecovery = await recoveryRun;
+      check('worker error is recoverable on the next run', workerError.status === 'error' && workerError.error.stage === 'runtime' && workerRecovery.status === 'ok' && workerRecovery.outputText === '2', JSON.stringify({ workerError, workerRecovery }));
+
+      const fakeTimeoutRun = fakeApp.run();
+      const timeoutWorker = harness.workers[harness.workers.length - 1];
+      const timeoutTimer = harness.timers[harness.timers.length - 1];
+      check('production timeout is scheduled for exactly 5000 ms', timeoutTimer.delay === 5000, String(timeoutTimer.delay));
+      harness.fireTimer(timeoutTimer);
+      const timedOut = await fakeTimeoutRun;
+      check('test timer can drive timeout and terminate its worker', timedOut.status === 'timeout' && timeoutWorker.terminated, JSON.stringify(timedOut));
+
+      const reentrantHarness = await controllerHarness();
+      let reentrantRun;
+      reentrantHarness.app.subscribe((nextState, status) => {
+        if (status === 'running') reentrantHarness.app.cancel();
+      });
+      reentrantRun = reentrantHarness.app.run();
+      const reentrantResult = await reentrantRun;
+      check('reentrant subscriber cancellation cannot post orphan work', reentrantResult.status === 'cancelled' && reentrantHarness.workers[0].postCount === 0 && reentrantHarness.workers[0].terminated, JSON.stringify(reentrantResult));
     } catch (error) {
       check('controller harness completes', false, String(error));
     } finally {

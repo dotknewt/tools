@@ -487,42 +487,43 @@
     try { worker.terminate(); } catch (error) { /* termination is best effort */ }
   }
 
-  function settleActive(run, value, status) {
+  function settleActive(run, value, status, publish) {
     if (active !== run) return false;
-    clearTimeout(run.timer);
+    root.clearTimeout(run.timer);
     active = null;
     terminate(run.worker);
     result = value;
     runStatus = status;
     run.resolve(resultCopy(value));
-    notify();
+    if (publish !== false) notify();
     return true;
   }
 
-  function cancelActive(status, message) {
+  function cancelActive(status, message, publish) {
     if (!active) return null;
     var run = active;
     var value = metadata(status, { error: { stage: status, message: message } });
-    settleActive(run, value, status);
+    settleActive(run, value, status, publish);
     return value;
   }
 
-  function invalidate() {
-    if (active) cancelActive('cancelled', 'run superseded by a state change');
+  function invalidate(mutator) {
+    if (active) cancelActive('cancelled', 'run superseded by a state change', false);
     result = null;
     runStatus = 'stale';
+    if (mutator) mutator();
     state.revision += 1;
     notify();
   }
 
   function setStateField(name, value) {
-    state[name] = clone(value);
-    invalidate();
+    var copy = clone(value);
+    invalidate(function () { state[name] = copy; });
     return stateCopy();
   }
 
   function workerFactory() {
-    return new Worker('worker.js', { type: 'module' });
+    return new root.Worker('worker.js', { type: 'module' });
   }
 
   function beginRunFailure(error) {
@@ -574,10 +575,12 @@
       result = null;
       runStatus = 'running';
       notify();
-      runRecord.timer = setTimeout(function () {
+      if (active !== runRecord) return;
+      runRecord.timer = root.setTimeout(function () {
         if (active !== runRecord) return;
         settleActive(runRecord, metadata('timeout', { error: { stage: 'timeout', message: 'execution timed out after 5000 ms' } }), 'timeout');
       }, RUN_TIMEOUT_MS);
+      if (active !== runRecord) return;
 
       worker.addEventListener('message', function (event) {
         if (active !== runRecord) return;
@@ -612,10 +615,10 @@
     setInput: function (text, format) {
       if (typeof text !== 'string') throw makeError('input', 'input must be text');
       if (encoder.encode(text).byteLength > MAX_INPUT_BYTES) throw makeError('input', 'input exceeds 5242880 bytes', 'INPUT_TOO_LARGE');
-      core.normalizeInput(text, format);
-      state.inputText = text;
-      state.format = format;
-      invalidate();
+      invalidate(function () {
+        state.inputText = text;
+        state.format = format;
+      });
       return stateCopy();
     },
     setBuilder: function (builder) { return setStateField('builder', builder); },
