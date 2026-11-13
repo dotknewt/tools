@@ -1,0 +1,119 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>jq runtime smoke tests</title>
+<h1>jq runtime smoke tests</h1>
+<pre id="test-summary">FAIL</pre>
+<pre id="test-details"></pre>
+<script>
+(() => {
+  const summary = document.querySelector('#test-summary');
+  const details = document.querySelector('#test-details');
+  const checks = [];
+  const worker = new Worker('../worker.js', { type: 'module' });
+  let nextId = 0;
+
+  function check(name, condition, evidence) {
+    checks.push({ name, pass: Boolean(condition), evidence: evidence || '' });
+  }
+
+  function run(request) {
+    return new Promise((resolve, reject) => {
+      const id = `runtime-${++nextId}`;
+      const timeout = setTimeout(() => {
+        worker.removeEventListener('message', onMessage);
+        reject(new Error(`timed out waiting for ${id}`));
+      }, 3000);
+      const onMessage = (event) => {
+        if (event.data && event.data.id === id) {
+          clearTimeout(timeout);
+          worker.removeEventListener('message', onMessage);
+          resolve(event.data);
+        }
+      };
+      worker.addEventListener('message', onMessage);
+      worker.postMessage({ ...request, id, revision: nextId });
+    });
+  }
+
+  async function main() {
+    try {
+      const regex = await run({
+        type: 'run',
+        input: JSON.stringify('abc'),
+        filter: `[inputs | [
+          test("AbC";"i"),
+          ("abc" | match("a")),
+          ("Ada" | capture("(?<name>Ada)")),
+          ("abc abc" | sub("abc"; "X")),
+          ("abc abc" | gsub("abc"; "X")),
+          ("\\u03bb" | [., test("\\u03bb")]),
+          ("abc" | sub("(?<x>a)"; "\\(.x)-\\(.x)")),
+          ("AbC" | test("abc"; "i"))
+        ]]`,
+        regexChecks: [
+          { pattern: 'a', flags: '' },
+          { pattern: '(?<name>Ada)', flags: '' }
+        ],
+        limits: { inputBytes: 5242880, outputBytes: 1048576, outputValues: 1000 }
+      });
+      check('test("AbC";"i") is true', regex.status === 'ok' && regex.outputText.includes('[true,'), JSON.stringify(regex));
+      check('match("a") exposes offset and string', regex.status === 'ok' && regex.outputText.includes('"offset":0') && regex.outputText.includes('"string":"a"'), regex.outputText);
+      check('named capture extracts name', regex.status === 'ok' && regex.outputText.includes('"name":"Ada"'), regex.outputText);
+      check('sub replaces once', regex.status === 'ok' && regex.outputText.includes('"X abc"'), regex.outputText);
+      check('gsub replaces all', regex.status === 'ok' && regex.outputText.includes('"X X"'), regex.outputText);
+      check('escaped Unicode works', regex.status === 'ok' && JSON.parse(regex.outputText)[0][5][0] === '\u03bb' && JSON.parse(regex.outputText)[0][5][1] === true, regex.outputText);
+      check('replacement interpolation works', regex.status === 'ok' && regex.outputText.includes('"a-abc"'), regex.outputText);
+      check('regex flags work', regex.status === 'ok' && regex.outputText.endsWith('true]]'), regex.outputText);
+
+      const invalid = await run({
+        type: 'run',
+        input: JSON.stringify('abc'),
+        filter: '.',
+        regexChecks: [{ pattern: '[', flags: '' }],
+        limits: { inputBytes: 5242880, outputBytes: 1048576, outputValues: 1000 }
+      });
+      check('invalid regex reports an error', invalid.status === 'error' && invalid.error && invalid.error.stage === 'regex', JSON.stringify(invalid));
+
+      const stream = await run({
+        type: 'run',
+        input: '{"n":1}\n{"n":2}\n',
+        filter: 'inputs | .n',
+        regexChecks: [],
+        limits: { inputBytes: 5242880, outputBytes: 1048576, outputValues: 1000 }
+      });
+      check('inputs consumes multiple values exactly once', stream.status === 'ok' && stream.outputText === '1\n2', JSON.stringify(stream));
+
+      const empty = await run({
+        type: 'run',
+        input: '',
+        filter: '[inputs]',
+        regexChecks: [],
+        limits: { inputBytes: 5242880, outputBytes: 1048576, outputValues: 1000 }
+      });
+      check('inputs accepts an empty stream', empty.status === 'ok' && empty.outputText === '[]', JSON.stringify(empty));
+
+      const capped = await run({
+        type: 'run',
+        input: '{"n":1}\n{"n":2}\n',
+        filter: 'inputs | .n',
+        regexChecks: [],
+        limits: { inputBytes: 5242880, outputBytes: 1048576, outputValues: 1 }
+      });
+      check('output value cap labels buffered truncation', capped.status === 'truncated' && capped.outputText === '1' && capped.valueCount === 1, JSON.stringify(capped));
+    } catch (error) {
+      check('worker protocol completes', false, String(error));
+    } finally {
+      worker.terminate();
+      const failed = checks.filter((item) => !item.pass);
+      details.textContent = checks.map((item) => `${item.pass ? 'PASS' : 'FAIL'} ${item.name}${item.evidence ? `: ${item.evidence}` : ''}`).join('\n');
+      summary.textContent = failed.length === 0 ? `PASS (${checks.length} checks)` : `FAIL (${failed.length}/${checks.length} checks failed)`;
+      document.documentElement.dataset.testComplete = 'true';
+    }
+  }
+
+  worker.addEventListener('error', (event) => {
+    check('worker loads', false, event.message || 'worker failed to load');
+  }, { once: true });
+  main();
+})();
+</script>
