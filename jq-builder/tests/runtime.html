@@ -110,6 +110,24 @@
       });
       check('UTF-8 input and output use byte limits', utf8.status === 'ok' && utf8.outputText === '"\u00e9"' && new TextEncoder().encode(utf8.outputText).byteLength === 4, JSON.stringify(utf8));
 
+      const utf8InputCapped = await run({
+        type: 'run',
+        input: JSON.stringify('\u00e9'),
+        filter: 'inputs',
+        regexChecks: [],
+        limits: { inputBytes: 3, outputBytes: 1048576, outputValues: 1000 }
+      });
+      check('UTF-8 input rejects one byte below its limit', utf8InputCapped.status === 'error' && utf8InputCapped.error && utf8InputCapped.error.stage === 'input', JSON.stringify(utf8InputCapped));
+
+      const utf8OutputCapped = await run({
+        type: 'run',
+        input: JSON.stringify('\u00e9'),
+        filter: 'inputs',
+        regexChecks: [],
+        limits: { inputBytes: 4, outputBytes: 3, outputValues: 1000 }
+      });
+      check('UTF-8 output truncates when bytes exceed its limit', utf8OutputCapped.status === 'truncated' && utf8OutputCapped.outputText === '' && new TextEncoder().encode('"\u00e9"').byteLength > 3, JSON.stringify(utf8OutputCapped));
+
       const byteCapped = await run({
         type: 'run',
         input: '1\n22\n',
