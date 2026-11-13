@@ -375,8 +375,40 @@
       check('input-free recipe preserves current raw input while applying format', testUi.getElementById('input-text').value === importedInput && testUi.getElementById('input-format').value === 'json' && testUi.getElementById('input-warning').hidden);
       const invalidInputRecipe = { ...JSON.parse(verifyFrame.contentWindow.JQCore.exportRecipe(task5RecipeState, false)), format: 'json', inputText: '{', mode: 'custom', customFilter: '. + 1' };
       await importRecipeFile(JSON.stringify(invalidInputRecipe));
-      check('valid recipe with invalid input remains editable and reports input error', testUi.getElementById('input-text').value === '{' && !testUi.getElementById('input-warning').hidden && testUi.getElementById('custom-mode').getAttribute('aria-pressed') === 'true' && testUi.getElementById('custom-filter').value === '. + 1' && testUi.getElementById('run-query').disabled);
-      check('download object URLs are revoked after click use', downloads.filter((item) => item.filename).every((item) => revokedUrls.includes(item.url)) && capturedBlobs.length > 0);
+       check('valid recipe with invalid input remains editable and reports input error', testUi.getElementById('input-text').value === '{' && !testUi.getElementById('input-warning').hidden && testUi.getElementById('custom-mode').getAttribute('aria-pressed') === 'true' && testUi.getElementById('custom-filter').value === '. + 1' && testUi.getElementById('run-query').disabled);
+       testUi.getElementById('input-text').value = '{"old":1}'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true })); testUi.getElementById('input-format').value = 'json'; testUi.getElementById('input-format').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+       const malformedDraft = '{"new":'; testUi.getElementById('input-text').value = malformedDraft; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+       const inputFreeDraftRecipe = verifyFrame.contentWindow.JQCore.exportRecipe({ ...testApp.getState(), format: 'jsonl' }, false);
+       await importRecipeFile(inputFreeDraftRecipe);
+       check('input-free import preserves malformed visible draft while applying recipe format', testUi.getElementById('input-text').value === malformedDraft && testApp.getState().inputText === malformedDraft && testUi.getElementById('input-format').value === 'jsonl' && !testUi.getElementById('input-warning').hidden);
+       const oversizedDraft = 'x'.repeat(5 * 1024 * 1024 + 1); testUi.getElementById('input-text').value = oversizedDraft; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+       const oversizedImportState = JSON.stringify(testApp.getState()); const oversizedImportRecipe = verifyFrame.contentWindow.JQCore.exportRecipe({ ...testApp.getState(), format: 'json' }, false); await importRecipeFile(oversizedImportRecipe); await new Promise((resolve) => setTimeout(resolve, 250));
+       check('input-free import rejects oversized visible draft without state mutation', testUi.getElementById('input-text').value === oversizedDraft && JSON.stringify(testApp.getState()) === oversizedImportState && !testUi.getElementById('recipe-warning').hidden && /5 MiB/.test(testUi.getElementById('recipe-warning').textContent), JSON.stringify({ state: testApp.getState(), before: JSON.parse(oversizedImportState), warning: testUi.getElementById('recipe-warning').textContent }));
+       testUi.getElementById('input-text').value = '1'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true })); testUi.getElementById('input-format').value = 'jsonl'; testUi.getElementById('input-format').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+       testUi.getElementById('add-condition').click(); let transitionOperation = testUi.querySelector('#condition-list select[data-testid="condition-operation"]'); transitionOperation.value = 'eq'; transitionOperation.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+       const transitionValue = testUi.querySelector('#condition-list input[data-testid="condition-value"]'); transitionValue.value = '1'; transitionValue.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); transitionOperation = testUi.querySelector('#condition-list select[data-testid="condition-operation"]'); transitionOperation.value = 'exists'; transitionOperation.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+       const transitionedLeaf = testApp.getState().builder.condition.children.at(-1); let transitionRecipeOk = true; try { verifyFrame.contentWindow.JQCore.importRecipe(verifyFrame.contentWindow.JQCore.exportRecipe(testApp.getState())); } catch (_) { transitionRecipeOk = false; }
+       check('operation transition removes stale leaf fields for recipe round trips', transitionRecipeOk && Object.keys(transitionedLeaf).sort().join(',') === 'kind,op,path');
+        testApp.setBuilder({ source: { kind: 'root', path: [] }, condition: { kind: 'group', op: 'and', children: [{ kind: 'leaf', path: [], op: 'regex', value: '123', flags: '' }] }, steps: [], projection: null }); testApp.setCollect(false); testUi.getElementById('builder-mode').click(); transitionOperation = testUi.querySelector('#condition-list select[data-testid="condition-operation"]'); transitionOperation.value = 'regex'; transitionOperation.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); const regexPath = testUi.querySelector('#condition-list input[data-testid="condition-path"]'); regexPath.value = '[]'; regexPath.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); const typedRegex = testUi.querySelector('[data-testid="condition-regex-pattern"]'); typedRegex.value = '123'; typedRegex.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); testUi.getElementById('input-text').value = '123\n"123"'; testUi.getElementById('input-format').value = 'jsonl'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true })); testUi.getElementById('input-format').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+       let regexRun = waitForEvent(testApp, (next, status, result) => status === 'complete' && result); testUi.getElementById('run-query').click(); let regexRunResult = await regexRun;
+        check('numeric regex pattern stays literal text and matches only string input', regexRunResult.result.outputText === '"123"', JSON.stringify(regexRunResult.result));
+       typedRegex.value = '[123]'; typedRegex.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); testUi.getElementById('input-text').value = '"3"\n"abc"'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+        regexRun = waitForEvent(testApp, (next, status, result) => status === 'complete' && result); testUi.getElementById('run-query').click(); regexRunResult = await regexRun;
+        check('character-class regex pattern stays literal text in real execution', regexRunResult.result.outputText === '"3"', JSON.stringify({ result: regexRunResult.result, condition: testApp.getState().builder.condition.children[0] }));
+       transitionOperation = testUi.querySelector('#condition-list select[data-testid="condition-operation"]'); transitionOperation.value = 'exists'; transitionOperation.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); const regexToExistsLeaf = testApp.getState().builder.condition.children[0]; let regexToExistsRoundTrip = true; try { verifyFrame.contentWindow.JQCore.importRecipe(verifyFrame.contentWindow.JQCore.exportRecipe(testApp.getState())); } catch (_) { regexToExistsRoundTrip = false; }
+       check('regex to exists transition removes regex-only fields for recipe round trips', regexToExistsRoundTrip && Object.keys(regexToExistsLeaf).sort().join(',') === 'kind,op,path');
+        for (const arrayOp of ['any', 'all']) { testUi.getElementById('add-condition').click(); const directOperations = () => Array.from(testUi.querySelectorAll('#condition-list > .group > .children > .leaf > select[data-testid="condition-operation"]')); const arrayOperation = directOperations().at(-1); arrayOperation.value = arrayOp; arrayOperation.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); const eqOperation = directOperations().at(-1); eqOperation.value = 'eq'; eqOperation.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); }
+       const arrayToEqLeaves = testApp.getState().builder.condition.children.slice(-2); let arrayToEqRoundTrip = true; try { verifyFrame.contentWindow.JQCore.importRecipe(verifyFrame.contentWindow.JQCore.exportRecipe(testApp.getState())); } catch (_) { arrayToEqRoundTrip = false; }
+        check('any and all to eq transitions remove child fields for recipe round trips', arrayToEqRoundTrip && arrayToEqLeaves.every((leaf) => Object.keys(leaf).sort().join(',') === 'kind,op,path,value'));
+       const removalFrame = ui.createElement('iframe'); removalFrame.title = 'path error removal regression'; removalFrame.style.cssText = 'width:100%;height:500px;border:0'; removalFrame.src = frame.contentWindow.location.href; ui.body.append(removalFrame);
+       await new Promise((resolve, reject) => { const deadline = Date.now() + 8000; const poll = () => { if (removalFrame.contentDocument?.documentElement.dataset.uiReady === 'true') return resolve(); if (Date.now() > deadline) return reject(new Error('path removal frame did not initialize')); setTimeout(poll, 15); }; poll(); });
+       const removalUi = removalFrame.contentDocument; const removalApp = removalFrame.contentWindow.JQApp; removalUi.getElementById('input-text').value = '1'; removalUi.getElementById('input-text').dispatchEvent(new removalFrame.contentWindow.Event('input', { bubbles: true })); removalUi.getElementById('add-condition').click(); const invalidRemovalPath = removalUi.querySelector('#condition-list input[data-testid="condition-path"]'); invalidRemovalPath.value = '['; invalidRemovalPath.dispatchEvent(new removalFrame.contentWindow.Event('change', { bubbles: true })); removalUi.querySelector('#condition-list button[data-testid="condition-remove"]').click();
+       check('removing an invalid condition path clears only discarded validation', removalApp.getState().builder.condition.children.length === 0 && removalUi.getElementById('builder-warning').hidden && !removalUi.getElementById('run-query').disabled);
+        removalUi.getElementById('add-step').click(); const invalidStepPath = removalUi.querySelector('[aria-label="Transformation 1 path"]'); invalidStepPath.value = '['; invalidStepPath.dispatchEvent(new removalFrame.contentWindow.Event('change', { bubbles: true })); removalUi.querySelector('#step-list button.delete').click();
+       check('removing an invalid step path clears discarded validation', removalApp.getState().builder.steps.length === 0 && removalUi.getElementById('builder-warning').hidden && !removalUi.getElementById('run-query').disabled);
+       removalUi.getElementById('projection-toggle').click(); removalUi.getElementById('add-projection').click(); const invalidProjectionPath = removalUi.querySelector('[aria-label="Output field 1 path"]'); invalidProjectionPath.value = '['; invalidProjectionPath.dispatchEvent(new removalFrame.contentWindow.Event('change', { bubbles: true })); removalUi.getElementById('projection-toggle').click();
+       check('disabling projection clears discarded projection validation', removalApp.getState().builder.projection === null && removalUi.getElementById('builder-warning').hidden && !removalUi.getElementById('run-query').disabled);
+       check('download object URLs are revoked after click use', downloads.filter((item) => item.filename).every((item) => revokedUrls.includes(item.url)) && capturedBlobs.length > 0);
       verifyFrame.contentWindow.Blob = NativeBlob;
        check('JQApp exposes the requested methods', app && ['getState', 'setInput', 'setBuilder', 'setMode', 'setCustomFilter', 'setCollect', 'applyRecipe', 'run', 'cancel', 'subscribe'].every((name) => typeof app[name] === 'function'));
       app.setInput('1', 'jsonl'); app.setBuilder({ source: { kind: 'root', path: [] }, condition: { kind: 'group', op: 'and', children: [] }, steps: [], projection: null }); app.setCollect(false); app.setMode('custom'); app.setCustomFilter('.');
@@ -437,13 +469,13 @@
       const old = await superseded;
       check('cancelled or older run replies cannot replace current output', current.status === 'ok' && current.outputText === '1' && old.status === 'cancelled', JSON.stringify({ old, current }));
 
-      const harness = await controllerHarness();
+       const harness = await controllerHarness();
       const fakeApp = harness.app;
       const malformedBuilder = JSON.stringify(fakeApp.getState().builder);
       let malformedAccepted = true;
       try { fakeApp.setInput('{', 'json'); } catch (error) { malformedAccepted = false; }
       const malformedState = fakeApp.getState();
-      const malformedResult = await fakeApp.run();
+       const malformedResult = await fakeApp.run();
       check('malformed input remains editable until Run', malformedAccepted && malformedState.inputText === '{' && malformedResult.status === 'error' && malformedResult.error.stage === 'input' && JSON.stringify(malformedState.builder) === malformedBuilder, JSON.stringify(malformedResult));
 
       const exactFiveMiB = '\u00e9'.repeat(2621440);
@@ -460,7 +492,7 @@
       const atomicWorker = harness.workers[harness.workers.length - 1];
       atomicEvents.length = 0;
       fakeApp.setInput('2', 'jsonl');
-      const atomicCancelled = await atomicRun;
+       const atomicCancelled = await atomicRun;
       removeAtomic();
       check('state mutation and cancellation publish one coherent transition', atomicCancelled.status === 'cancelled' && atomicEvents.length === 1 && atomicEvents[0].revision === fakeApp.getState().revision && atomicEvents[0].inputText === '2' && atomicEvents[0].status === 'stale' && atomicEvents[0].result === null && atomicWorker.terminated, JSON.stringify({ atomicCancelled, atomicEvents }));
 
@@ -469,7 +501,7 @@
       const newerRun = fakeApp.run();
       const newerWorker = harness.workers[harness.workers.length - 1];
       newerWorker.reply({ type: 'result', id: newerWorker.request.id, revision: newerWorker.request.revision, status: 'ok', outputText: 'newer', valueCount: 1 });
-      const newerResult = await newerRun;
+       const newerResult = await newerRun;
       const lateCount = lateEvents.length;
       const newerEvent = JSON.stringify(lateEvents[lateEvents.length - 1]);
       atomicWorker.reply({ type: 'result', id: atomicWorker.request && atomicWorker.request.id, revision: atomicWorker.request && atomicWorker.request.revision, status: 'ok', outputText: '999', valueCount: 1 });
@@ -484,18 +516,18 @@
       const cancelCount = cancelEvents.length;
       const cancelledEvent = JSON.stringify(cancelEvents[cancelEvents.length - 1]);
       cancelWorker.reply({ type: 'result', id: cancelWorker.request.id, revision: cancelWorker.request.revision, status: 'ok', outputText: 'orphan', valueCount: 1 });
-      const cancelResult = await cancelRun;
+       const cancelResult = await cancelRun;
       check('explicit cancel stays cancelled after a late reply', cancelled.status === 'cancelled' && cancelResult.status === 'cancelled' && cancelWorker.terminated && cancelEvents.length === cancelCount && JSON.stringify(cancelEvents[cancelEvents.length - 1]) === cancelledEvent && cancelEvents[cancelEvents.length - 1].result.status === 'cancelled', JSON.stringify({ cancelCount, cancelledEvent, afterCancel: cancelEvents[cancelEvents.length - 1] }));
       removeCancel();
 
       const errorRun = fakeApp.run();
       const errorWorker = harness.workers[harness.workers.length - 1];
       errorWorker.fail('synthetic worker failure');
-      const workerError = await errorRun;
+       const workerError = await errorRun;
       const recoveryRun = fakeApp.run();
       const recoveryWorker = harness.workers[harness.workers.length - 1];
       recoveryWorker.reply({ type: 'result', id: recoveryWorker.request.id, revision: recoveryWorker.request.revision, status: 'ok', outputText: '2', valueCount: 1 });
-      const workerRecovery = await recoveryRun;
+       const workerRecovery = await recoveryRun;
       check('worker error is recoverable on the next run', workerError.status === 'error' && workerError.error.stage === 'runtime' && workerRecovery.status === 'ok' && workerRecovery.outputText === '2', JSON.stringify({ workerError, workerRecovery }));
 
       const fakeTimeoutRun = fakeApp.run();
@@ -503,7 +535,7 @@
       const timeoutTimer = harness.timers[harness.timers.length - 1];
       check('production timeout is scheduled for exactly 5000 ms', timeoutTimer.delay === 5000, String(timeoutTimer.delay));
       harness.fireTimer(timeoutTimer);
-      const timedOut = await fakeTimeoutRun;
+       const timedOut = await fakeTimeoutRun;
       check('test timer can drive timeout and terminate its worker', timedOut.status === 'timeout' && timeoutWorker.terminated, JSON.stringify(timedOut));
 
       const reentrantHarness = await controllerHarness();

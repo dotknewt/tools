@@ -220,10 +220,20 @@ test('invalid transformation targets error while valid zero-match strings retain
 });
 
 test('effective collection wraps the stream once and JSONL collection is one array', () => {
-  assert.equal(JQCore.effectiveFilter('.', false), 'inputs | (.)');
-  assert.equal(JQCore.effectiveFilter('.', true), '[inputs | (.)]');
+  assert.equal(JQCore.effectiveFilter('.', false), 'inputs | (.\n)');
+  assert.equal(JQCore.effectiveFilter('.', true), '[inputs | (.\n)]');
   const normalized = JQCore.normalizeInput('1\n2', 'jsonl');
   assert.deepEqual(jq(normalized.text, JQCore.effectiveFilter('.', true)), [[1, 2]]);
+});
+
+test('effective filter terminates trailing comments before wrapper delimiters', () => {
+  const filter = '1 # keep this filter comment';
+  const stream = JQCore.effectiveFilter(filter, false);
+  const collected = JQCore.effectiveFilter(filter, true);
+  assert.match(stream, /comment\n\)$/);
+  assert.match(collected, /comment\n\)\]$/);
+  assert.deepEqual(jq('0', stream), [1]);
+  assert.deepEqual(jq('0', collected), [[1]]);
 });
 
 test('replacement grammar serializes literal chunks and interpolates safe capture paths', () => {

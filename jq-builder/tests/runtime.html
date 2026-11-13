@@ -228,6 +228,17 @@
       });
       check('browser compiler collects JSONL values once', collected.status === 'ok' && collected.outputText === '[1,2]', JSON.stringify(collected));
 
+      const trailingCommentStream = await run({
+        type: 'run', input: '0',
+        filter: core.effectiveFilter('1 # trailing stream comment', false), regexChecks: [], limits
+      });
+      check('browser worker closes stream wrapper after a trailing comment', trailingCommentStream.status === 'ok' && trailingCommentStream.outputText === '1', JSON.stringify(trailingCommentStream));
+      const trailingCommentCollect = await run({
+        type: 'run', input: '0',
+        filter: core.effectiveFilter('1 # trailing collect comment', true), regexChecks: [], limits
+      });
+      check('browser worker closes collect wrapper after a trailing comment', trailingCommentCollect.status === 'ok' && trailingCommentCollect.outputText === '[1]', JSON.stringify(trailingCommentCollect));
+
       const regex = await run({
         type: 'run',
         input: JSON.stringify('abc'),
