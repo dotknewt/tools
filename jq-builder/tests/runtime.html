@@ -1,0 +1,409 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>jq runtime smoke tests</title>
+<h1>jq runtime smoke tests</h1>
+<pre id="test-summary">FAIL</pre>
+<pre id="test-details"></pre>
+<script>
+(() => {
+  const summary = document.querySelector('#test-summary');
+  const details = document.querySelector('#test-details');
+  const checks = [];
+  const worker = new Worker('../worker.js', { type: 'module' });
+  let nextId = 0;
+
+  function check(name, condition, evidence) {
+    checks.push({ name, pass: Boolean(condition), evidence: evidence || '' });
+  }
+
+  function run(request) {
+    return new Promise((resolve, reject) => {
+      const id = `runtime-${++nextId}`;
+      const timeout = setTimeout(() => {
+        worker.removeEventListener('message', onMessage);
+        reject(new Error(`timed out waiting for ${id}`));
+      }, 3000);
+      const onMessage = (event) => {
+        if (event.data && event.data.id === id) {
+          clearTimeout(timeout);
+          worker.removeEventListener('message', onMessage);
+          resolve(event.data);
+        }
+      };
+      worker.addEventListener('message', onMessage);
+      worker.postMessage({ ...request, id, revision: nextId });
+    });
+  }
+
+  async function main() {
+    try {
+      const coreHtml = await fetch('../index.html').then((response) => response.text());
+      const coreMatch = coreHtml.match(/<script id="jq-core">([\s\S]*?)<\/script>/);
+      if (!coreMatch) throw new Error('jq-core script was not found');
+      Function(coreMatch[1])();
+      const core = globalThis.JQCore;
+      const limits = { inputBytes: 5242880, outputBytes: 1048576, outputValues: 1000 };
+
+      const defaultValueCap = await run({
+        type: 'run', input: Array.from({ length: 1001 }, () => '1').join('\n'),
+        filter: 'inputs', regexChecks: []
+      });
+      check('default output value cap is 1000 values', defaultValueCap.status === 'truncated' && defaultValueCap.valueCount === 1000, JSON.stringify(defaultValueCap));
+
+      const defaultByteCap = await run({
+        type: 'run', input: JSON.stringify('x'.repeat(1048575)),
+        filter: 'inputs', regexChecks: []
+      });
+      check('default output byte cap is 1048576 bytes', defaultByteCap.status === 'truncated' && new TextEncoder().encode(defaultByteCap.outputText).byteLength <= 1048576, JSON.stringify({ status: defaultByteCap.status, bytes: new TextEncoder().encode(defaultByteCap.outputText).byteLength }));
+
+      const literalBuilder = core.compileBuilder({
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: ['a.b'], op: 'eq', value: 'yes' },
+        steps: [],
+        projection: [
+          { path: ['"'], name: 'quote' },
+          { path: ['__proto__'], name: 'proto' },
+          { path: [0], name: 'zero' },
+          { path: [''], name: 'empty' }
+        ]
+      });
+      const literalInput = core.normalizeInput('{"a.b":"yes","\\\"":1,"__proto__":2,"0":"wrong"}', 'json');
+      const literal = await run({
+        type: 'run', input: literalInput.text,
+        filter: core.effectiveFilter(literalBuilder.filter, false),
+        regexChecks: literalBuilder.regexChecks, limits
+      });
+      check('browser compiler preserves literal paths', literal.status === 'ok' && literal.outputText === '{"quote":1,"proto":2,"zero":null,"empty":null}', JSON.stringify(literal));
+
+      const conditionBuilder = core.compileBuilder({
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'group', op: 'and', children: [
+          { kind: 'group', op: 'or', children: [
+            { kind: 'leaf', path: ['kind'], op: 'eq', value: 'a' },
+            { kind: 'leaf', path: ['kind'], op: 'eq', value: 'b' }
+          ] },
+          { kind: 'group', op: 'not', children: [{ kind: 'leaf', path: ['name'], op: 'regex', value: '^no', flags: 'i' }] }
+        ] },
+        steps: [], projection: null
+      });
+      const condition = await run({
+        type: 'run', input: '{"kind":"a","name":"yes"}\n{"kind":"b","name":"nope"}',
+        filter: core.effectiveFilter(conditionBuilder.filter, false),
+        regexChecks: conditionBuilder.regexChecks, limits
+      });
+      check('browser compiler preserves nested conditions and regex flags', condition.status === 'ok' && condition.outputText === '{"kind":"a","name":"yes"}', JSON.stringify(condition));
+
+      const orderingBuilder = core.compileBuilder({
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: ['name'], op: 'lt', value: 'm' },
+        steps: [], projection: null
+      });
+      const ordering = await run({
+        type: 'run', input: '{"name":"a"}\n{"name":"z"}\n{"name":1}',
+        filter: core.effectiveFilter(orderingBuilder.filter, false),
+        regexChecks: orderingBuilder.regexChecks, limits
+      });
+      check('browser compiler orders same-type strings only', ordering.status === 'ok' && ordering.outputText === '{"name":"a"}', JSON.stringify(ordering));
+
+      async function runGenerated(name, builder, input, expected, format) {
+        const compiled = core.compileBuilder(builder);
+        const normalized = core.normalizeInput(input, format || 'jsonl');
+        const result = await run({
+          type: 'run', input: normalized.text,
+          filter: core.effectiveFilter(compiled.filter, false),
+          regexChecks: compiled.regexChecks, limits
+        });
+        check(name, result.status === 'ok' && result.outputText === expected, JSON.stringify(result));
+      }
+
+      await runGenerated('browser compiler distinguishes present null from missing', {
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: ['a'], op: 'null' }, steps: [], projection: null
+      }, '{"a":null}\n{}', '{"a":null}');
+      await runGenerated('browser compiler selects missing paths only', {
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: ['a'], op: 'missing' }, steps: [], projection: null
+      }, '{"a":null}\n{}', '{}');
+      await runGenerated('browser compiler makes any empty array false', {
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: ['items'], op: 'any', child: { kind: 'leaf', path: [], op: 'eq', value: 1 } },
+        steps: [], projection: null
+      }, '{"items":[]}', '');
+      await runGenerated('browser compiler makes all empty array true', {
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: ['items'], op: 'all', child: { kind: 'leaf', path: [], op: 'eq', value: 1 } },
+        steps: [], projection: null
+      }, '{"items":[]}', '{"items":[]}');
+      await runGenerated('browser compiler makes any non-array false', {
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: ['items'], op: 'any', child: { kind: 'leaf', path: [], op: 'eq', value: 1 } },
+        steps: [], projection: null
+      }, '{"items":1}', '');
+      await runGenerated('browser compiler makes all non-array false', {
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: ['items'], op: 'all', child: { kind: 'leaf', path: [], op: 'eq', value: 1 } },
+        steps: [], projection: null
+      }, '{"items":1}', '');
+      await runGenerated('browser compiler makes all mixed array false', {
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: ['items'], op: 'all', child: { kind: 'leaf', path: [], op: 'eq', value: 2 } },
+        steps: [], projection: null
+      }, '{"items":[1,2]}', '');
+      await runGenerated('browser compiler makes any mixed array true', {
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: ['items'], op: 'any', child: { kind: 'leaf', path: [], op: 'eq', value: 2 } },
+        steps: [], projection: null
+      }, '{"items":[1,2]}', '{"items":[1,2]}');
+      await runGenerated('browser compiler selects nested source items', {
+        source: { kind: 'items', path: ['groups', 0, 'items'] },
+        condition: { kind: 'leaf', path: ['v'], op: 'eq', value: 2 }, steps: [], projection: null
+      }, '{"groups":[{"items":[{"v":1},{"v":2}]}]}', '{"v":2}');
+      await runGenerated('browser compiler preserves zero-match capture updates', {
+        source: { kind: 'root', path: [] }, condition: { kind: 'group', op: 'and', children: [] },
+        steps: [{ op: 'capture', path: ['text'], mode: 'update', pattern: '(?<x>a)', flags: '' }], projection: null
+      }, '{"text":"zzz"}', '{"text":"zzz"}');
+      await runGenerated('browser compiler replaces one capture update', {
+        source: { kind: 'root', path: [] }, condition: { kind: 'group', op: 'and', children: [] },
+        steps: [{ op: 'capture', path: ['text'], mode: 'update', pattern: '(?<x>a)', flags: '' }], projection: null
+      }, '{"text":"a"}', '{"text":{"x":"a"}}');
+      await runGenerated('browser compiler feeds emitted values into ordered steps', {
+        source: { kind: 'root', path: [] }, condition: { kind: 'group', op: 'and', children: [] },
+        steps: [
+          { op: 'capture', path: ['text'], mode: 'emit', pattern: '(?<x>a)', flags: '' },
+          { op: 'sub', path: ['x'], mode: 'update', pattern: 'a', flags: '', replacement: 'z' }
+        ], projection: null
+      }, '{"text":"a"}', '{"x":"z"}');
+      await runGenerated('browser compiler projects missing paths as null', {
+        source: { kind: 'root', path: [] }, condition: { kind: 'group', op: 'and', children: [] }, steps: [],
+        projection: [{ path: ['missing'], name: 'alias' }]
+      }, '{}', '{"alias":null}');
+      await runGenerated('browser compiler runs generated replacement interpolation', {
+        source: { kind: 'root', path: [] }, condition: { kind: 'group', op: 'and', children: [] },
+        steps: [{ op: 'sub', path: [], mode: 'emit', pattern: '(?<x>a)', flags: '', replacement: '\\(.x)-literal' }], projection: null
+      }, '"a"', '"a-literal"', 'json');
+
+      const captureBuilder = core.compileBuilder({
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'group', op: 'and', children: [] },
+        steps: [{ op: 'capture', path: ['text'], mode: 'update', pattern: '(?<x>a)', flags: 'g' }],
+        projection: null
+      });
+      const capture = await run({
+        type: 'run', input: '{"id":1,"text":"aba"}',
+        filter: core.effectiveFilter(captureBuilder.filter, false),
+        regexChecks: captureBuilder.regexChecks, limits
+      });
+      check('browser compiler preserves many-match capture updates', capture.status === 'ok' && capture.outputText === '{"id":1,"text":[{"x":"a"},{"x":"a"}]}', JSON.stringify(capture));
+
+      const invalidTargetBuilder = core.compileBuilder({
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'group', op: 'and', children: [] },
+        steps: [{ op: 'capture', path: [], mode: 'update', pattern: '(?<x>a)', flags: '' }],
+        projection: null
+      });
+      const invalidTarget = await run({
+        type: 'run', input: 'null',
+        filter: core.effectiveFilter(invalidTargetBuilder.filter, false),
+        regexChecks: invalidTargetBuilder.regexChecks, limits
+      });
+      check('browser compiler errors on invalid transformation targets', invalidTarget.status === 'error' && invalidTarget.error && invalidTarget.error.stage === 'filter' && invalidTarget.error.message.includes('transformation target must be a string'), JSON.stringify(invalidTarget));
+
+      const emitNoMatchBuilder = core.compileBuilder({
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'group', op: 'and', children: [] },
+        steps: [{ op: 'capture', path: [], mode: 'emit', pattern: '(?<x>a)', flags: '' }],
+        projection: null
+      });
+      const emitNoMatch = await run({
+        type: 'run', input: JSON.stringify('zzz'),
+        filter: core.effectiveFilter(emitNoMatchBuilder.filter, false),
+        regexChecks: emitNoMatchBuilder.regexChecks, limits
+      });
+      check('browser compiler emits zero values for valid zero-match strings', emitNoMatch.status === 'ok' && emitNoMatch.outputText === '', JSON.stringify(emitNoMatch));
+
+      const collectedInput = core.normalizeInput('1\n2', 'jsonl');
+      const collected = await run({
+        type: 'run', input: collectedInput.text, filter: core.effectiveFilter('.', true),
+        regexChecks: [], limits
+      });
+      check('browser compiler collects JSONL values once', collected.status === 'ok' && collected.outputText === '[1,2]', JSON.stringify(collected));
+
+      const trailingCommentStream = await run({
+        type: 'run', input: '0',
+        filter: core.effectiveFilter('1 # trailing stream comment', false), regexChecks: [], limits
+      });
+      check('browser worker closes stream wrapper after a trailing comment', trailingCommentStream.status === 'ok' && trailingCommentStream.outputText === '1', JSON.stringify(trailingCommentStream));
+      const trailingCommentCollect = await run({
+        type: 'run', input: '0',
+        filter: core.effectiveFilter('1 # trailing collect comment', true), regexChecks: [], limits
+      });
+      check('browser worker closes collect wrapper after a trailing comment', trailingCommentCollect.status === 'ok' && trailingCommentCollect.outputText === '[1]', JSON.stringify(trailingCommentCollect));
+
+      const regex = await run({
+        type: 'run',
+        input: JSON.stringify('abc'),
+        filter: `[inputs | [
+          test("AbC";"i"),
+          ("abc" | match("a")),
+          ("Ada" | capture("(?<name>Ada)")),
+          ("abc abc" | sub("abc"; "X")),
+          ("abc abc" | gsub("abc"; "X")),
+          ("\\u03bb" | [., test("\\u03bb")]),
+          ("abc" | sub("(?<x>a)"; "\\(.x)-\\(.x)")),
+          ("AbC" | test("abc"; "i"))
+        ]]`,
+        regexChecks: [
+          { pattern: 'a', flags: '' },
+          { pattern: '(?<name>Ada)', flags: '' }
+        ],
+        limits
+      });
+      check('test("AbC";"i") is true', regex.status === 'ok' && regex.outputText.includes('[true,'), JSON.stringify(regex));
+      check('match("a") exposes offset and string', regex.status === 'ok' && regex.outputText.includes('"offset":0') && regex.outputText.includes('"string":"a"'), regex.outputText);
+      check('named capture extracts name', regex.status === 'ok' && regex.outputText.includes('"name":"Ada"'), regex.outputText);
+      check('sub replaces once', regex.status === 'ok' && regex.outputText.includes('"X abc"'), regex.outputText);
+      check('gsub replaces all', regex.status === 'ok' && regex.outputText.includes('"X X"'), regex.outputText);
+      check('escaped Unicode works', regex.status === 'ok' && JSON.parse(regex.outputText)[0][5][0] === '\u03bb' && JSON.parse(regex.outputText)[0][5][1] === true, regex.outputText);
+      check('replacement interpolation works', regex.status === 'ok' && regex.outputText.includes('"a-abc"'), regex.outputText);
+      check('regex flags work', regex.status === 'ok' && regex.outputText.endsWith('true]]'), regex.outputText);
+
+      const stderrSuccess = await run({
+        type: 'run',
+        input: '1\n',
+        filter: 'inputs | debug',
+        regexChecks: [],
+        limits
+      });
+      check('successful jq stderr does not fail the run', stderrSuccess.status === 'ok' && stderrSuccess.outputText === '1', JSON.stringify(stderrSuccess));
+
+      const invalid = await run({
+        type: 'run',
+        input: JSON.stringify('abc'),
+        filter: '.',
+        regexChecks: [{ pattern: '[', flags: '' }],
+        limits
+      });
+      check('invalid regex reports an error', invalid.status === 'error' && invalid.error && invalid.error.stage === 'regex', JSON.stringify(invalid));
+
+      const invalidEmpty = await run({
+        type: 'run', input: '', filter: 'inputs | .',
+        regexChecks: [{ pattern: '[', flags: '' }], limits
+      });
+      check('invalid regex is rejected for an empty stream', invalidEmpty.status === 'error' && invalidEmpty.error && invalidEmpty.error.stage === 'regex', JSON.stringify(invalidEmpty));
+
+      const emptyJsonl = await run({
+        type: 'run', input: '', filter: 'inputs | .', regexChecks: [], limits
+      });
+      check('normalized empty JSONL is an empty successful stream', emptyJsonl.status === 'ok' && emptyJsonl.outputText === '' && emptyJsonl.valueCount === 0, JSON.stringify(emptyJsonl));
+
+      const stream = await run({
+        type: 'run',
+        input: '{"n":1}\n{"n":2}\n',
+        filter: 'inputs | .n',
+        regexChecks: [],
+        limits
+      });
+      check('inputs consumes multiple values exactly once', stream.status === 'ok' && stream.outputText === '1\n2', JSON.stringify(stream));
+
+      const empty = await run({
+        type: 'run',
+        input: '',
+        filter: '[inputs]',
+        regexChecks: [],
+        limits
+      });
+      check('inputs accepts an empty stream', empty.status === 'ok' && empty.outputText === '[]', JSON.stringify(empty));
+
+      const utf8 = await run({
+        type: 'run',
+        input: JSON.stringify('\u00e9'),
+        filter: 'inputs',
+        regexChecks: [],
+        limits: { inputBytes: 4, outputBytes: 4, outputValues: 1000 }
+      });
+      check('UTF-8 input and output use byte limits', utf8.status === 'ok' && utf8.outputText === '"\u00e9"' && new TextEncoder().encode(utf8.outputText).byteLength === 4, JSON.stringify(utf8));
+
+      const utf8InputCapped = await run({
+        type: 'run',
+        input: JSON.stringify('\u00e9'),
+        filter: 'inputs',
+        regexChecks: [],
+        limits: { inputBytes: 3, outputBytes: 1048576, outputValues: 1000 }
+      });
+      check('UTF-8 input rejects one byte below its limit', utf8InputCapped.status === 'error' && utf8InputCapped.error && utf8InputCapped.error.stage === 'input', JSON.stringify(utf8InputCapped));
+
+      const utf8OutputCapped = await run({
+        type: 'run',
+        input: JSON.stringify('\u00e9'),
+        filter: 'inputs',
+        regexChecks: [],
+        limits: { inputBytes: 4, outputBytes: 3, outputValues: 1000 }
+      });
+      check('UTF-8 output truncates when bytes exceed its limit', utf8OutputCapped.status === 'truncated' && utf8OutputCapped.outputText === '' && new TextEncoder().encode('"\u00e9"').byteLength > 3, JSON.stringify(utf8OutputCapped));
+
+      const byteCapped = await run({
+        type: 'run',
+        input: '1\n22\n',
+        filter: 'inputs',
+        regexChecks: [],
+        limits: { inputBytes: 5242880, outputBytes: 3, outputValues: 1000 }
+      });
+      check('output byte cap truncates UTF-8 output', byteCapped.status === 'truncated' && byteCapped.outputText === '1' && new TextEncoder().encode(byteCapped.outputText).byteLength <= 3, JSON.stringify(byteCapped));
+
+      const capped = await run({
+        type: 'run',
+        input: '{"n":1}\n{"n":2}\n',
+        filter: 'inputs | .n',
+        regexChecks: [],
+        limits: { inputBytes: 5242880, outputBytes: 1048576, outputValues: 1 }
+      });
+      check('output value cap labels buffered truncation', capped.status === 'truncated' && capped.outputText === '1' && capped.valueCount === 1, JSON.stringify(capped));
+
+      const errorAfterOutput = await run({
+        type: 'run',
+        input: '1\n2\n3\n',
+        filter: 'inputs, error(("x" * 10000))',
+        regexChecks: [],
+        limits: { inputBytes: 5242880, outputBytes: 3, outputValues: 2 }
+      });
+      check('error after output returns capped incomplete preview', errorAfterOutput.status === 'error' && errorAfterOutput.outputText === '1\n2' && errorAfterOutput.valueCount === 2 && new TextEncoder().encode(errorAfterOutput.outputText).byteLength <= 3 && errorAfterOutput.error && new TextEncoder().encode(errorAfterOutput.error.message).byteLength <= 4096, JSON.stringify(errorAfterOutput));
+
+      const collectedByteCapped = await run({
+        type: 'run', input: JSON.stringify('\u00e9'), filter: '[inputs]', regexChecks: [],
+        limits: { inputBytes: 5242880, outputBytes: 3, outputValues: 1000 }
+      });
+      check('collected arrays still obey the byte cap as one value', collectedByteCapped.status === 'truncated' && collectedByteCapped.outputText === '' && collectedByteCapped.valueCount === 0, JSON.stringify(collectedByteCapped));
+
+      for (const field of ['inputBytes', 'outputBytes', 'outputValues']) {
+        for (const [label, value] of [['NaN', NaN], ['Infinity', Infinity], ['negative', -1], ['string', '1']]) {
+          const invalidLimits = { inputBytes: 5242880, outputBytes: 1048576, outputValues: 1000 };
+          invalidLimits[field] = value;
+          const invalidLimit = await run({
+            type: 'run', input: '1', filter: 'inputs', regexChecks: [], limits: invalidLimits
+          });
+          check(`rejects ${label} ${field} override`, invalidLimit.status === 'error' && invalidLimit.error && invalidLimit.error.stage === 'limits', JSON.stringify(invalidLimit));
+        }
+      }
+
+      const longDiagnostic = await run({
+        type: 'run', input: '1', filter: 'error(("x" * 4095) + "\u00e9")', regexChecks: [], limits
+      });
+      const diagnosticBytes = longDiagnostic.error ? new TextEncoder().encode(longDiagnostic.error.message).byteLength : Infinity;
+      check('diagnostics stay within 4096 UTF-8 bytes at a multibyte boundary', longDiagnostic.status === 'error' && diagnosticBytes <= 4096 && !longDiagnostic.error.message.includes('\ufffd'), JSON.stringify({ status: longDiagnostic.status, diagnosticBytes }));
+    } catch (error) {
+      check('worker protocol completes', false, String(error));
+    } finally {
+      worker.terminate();
+      const failed = checks.filter((item) => !item.pass);
+      details.textContent = checks.map((item) => `${item.pass ? 'PASS' : 'FAIL'} ${item.name}${item.evidence ? `: ${item.evidence}` : ''}`).join('\n');
+      summary.textContent = failed.length === 0 ? `PASS (${checks.length} checks)` : `FAIL (${failed.length}/${checks.length} checks failed)`;
+      document.documentElement.dataset.testComplete = 'true';
+    }
+  }
+
+  worker.addEventListener('error', (event) => {
+    check('worker loads', false, event.message || 'worker failed to load');
+  }, { once: true });
+  main();
+})();
+</script>

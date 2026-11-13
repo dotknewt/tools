@@ -1,0 +1,604 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>jq controller browser tests</title>
+<pre id="test-summary">FAIL</pre>
+<pre id="test-details"></pre>
+<iframe id="app" src="../index.html" title="jq builder under test" style="display:block;width:100%;height:1050px;border:0"></iframe>
+<script>
+(() => {
+  const summary = document.querySelector('#test-summary');
+  const details = document.querySelector('#test-details');
+  const frame = document.querySelector('#app');
+  const checks = [];
+
+  function check(name, condition, evidence) {
+    checks.push({ name, pass: Boolean(condition), evidence: evidence || '' });
+  }
+
+  function waitForEvent(app, predicate, timeout = 15000) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        unsubscribe();
+        reject(new Error(`timed out waiting for ${predicate.name || 'event'}`));
+      }, timeout);
+      const unsubscribe = app.subscribe((state, status, result) => {
+        if (!predicate(state, status, result)) return;
+        clearTimeout(timer);
+        unsubscribe();
+        resolve({ state, status, result });
+      });
+    });
+  }
+
+  async function controllerHarness() {
+    const html = await fetch('../index.html').then((response) => response.text());
+    const coreSource = html.match(/<script id="jq-core">([\s\S]*?)<\/script>/)[1];
+    const controllerSource = html.match(/<script id="jq-controller">([\s\S]*?)<\/script>/)[1];
+    const workers = [];
+    const timers = [];
+    class FakeWorker {
+      constructor() {
+        this.listeners = { message: [], error: [] };
+        this.terminated = false;
+        this.postCount = 0;
+        workers.push(this);
+      }
+      addEventListener(type, listener) { this.listeners[type].push(listener); }
+      postMessage(message) { this.postCount += 1; this.request = message; }
+      terminate() { this.terminated = true; }
+      reply(message) { this.listeners.message.slice().forEach((listener) => listener({ data: message })); }
+      fail(message) { this.listeners.error.slice().forEach((listener) => listener({ message })); }
+    }
+    const root = {
+      Worker: FakeWorker,
+      TextEncoder,
+      TextDecoder,
+      setTimeout(callback, delay) {
+        const timer = { callback, delay, cancelled: false };
+        timers.push(timer);
+        return timer;
+      },
+      clearTimeout(timer) { if (timer) timer.cancelled = true; }
+    };
+    Function('globalThis', coreSource)(root);
+    Function('globalThis', controllerSource)(root);
+    return {
+      app: root.JQApp,
+      core: root.JQCore,
+      workers,
+      timers,
+      fireTimer(timer) { if (timer && !timer.cancelled) timer.callback(); }
+    };
+  }
+
+  async function main() {
+    try {
+      await new Promise((resolve, reject) => {
+        const deadline = Date.now() + 3000;
+        const poll = () => {
+          if (frame.contentWindow.JQApp) return resolve();
+          if (Date.now() >= deadline) return reject(new Error('application frame failed to load'));
+          setTimeout(poll, 10);
+        };
+        poll();
+      });
+      await new Promise((resolve, reject) => {
+        const deadline = Date.now() + 3000;
+        const poll = () => {
+          if (!frame.contentDocument.getElementById('jq-ui') || frame.contentDocument.documentElement.dataset.uiReady === 'true') return resolve();
+          if (Date.now() >= deadline) return reject(new Error('application UI failed to initialize'));
+          setTimeout(poll, 10);
+        };
+        poll();
+      });
+      const app = frame.contentWindow.JQApp;
+      const ui = frame.contentDocument;
+      const requiredControls = ['input-text', 'input-format', 'input-file', 'source-kind', 'source-path', 'condition-list', 'add-condition', 'add-group', 'add-step', 'projection-toggle', 'collect-output', 'builder-mode', 'custom-mode', 'custom-filter', 'copy-generated', 'run-query', 'cancel-query', 'generated-filter', 'query-output', 'run-status', 'copy-filter', 'copy-command', 'command-preview', 'copy-results', 'download-result', 'download-input', 'download-recipe', 'recipe-include-input', 'recipe-file', 'recipe-warning'];
+      check('guided workflow exposes every required control', requiredControls.every((id) => ui.getElementById(id)), requiredControls.filter((id) => !ui.getElementById(id)).join(', '));
+      check('input editor, mode controls, and run actions have accessible names', ['input-text', 'input-format', 'input-file', 'builder-mode', 'custom-mode', 'run-query', 'cancel-query'].every((id) => { const el = ui.getElementById(id); return el && (el.labels && el.labels.length || el.getAttribute('aria-label') || el.getAttribute('aria-labelledby') || el.textContent.trim()); }));
+      check('builder interactions remain reachable at narrow widths', (() => { const viewport = ui.querySelector('meta[name="viewport"]'); return Boolean(viewport && ui.querySelector('[data-testid="builder-workspace"]') && ui.querySelector('[data-testid="input-workspace"]')); })());
+      check('status and output are announced accessibly', (() => { const status = ui.getElementById('run-status'); const output = ui.getElementById('query-output'); return Boolean(status && status.getAttribute('role') === 'status' && output && output.tagName === 'PRE'); })());
+      ui.getElementById('add-condition').focus(); ui.getElementById('add-condition').click();
+      check('condition button adds a keyboard-focusable predicate', ui.querySelector('#condition-list select[data-testid="condition-operation"]') && ui.activeElement);
+      let conditionSelect = ui.querySelector('#condition-list select[data-testid="condition-operation"]'); conditionSelect.value = 'regex'; conditionSelect.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      check('all agreed leaf operations are selectable', conditionSelect.options.length === 16 && ['eq', 'ne', 'lt', 'le', 'gt', 'ge', 'exists', 'missing', 'null', 'type', 'contains', 'startsWith', 'endsWith', 'regex', 'any', 'all'].every((op) => Array.from(conditionSelect.options).some((option) => option.value === op)));
+      ui.querySelector('#condition-list input[data-testid="condition-path"]').value = '["members"]'; ui.querySelector('#condition-list input[data-testid="condition-path"]').dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      conditionSelect = ui.querySelector('#condition-list select[data-testid="condition-operation"]');
+      conditionSelect.value = 'any'; conditionSelect.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      check('array any/all predicate exposes source-relative nested suggestions', Boolean(ui.querySelector('#condition-list .children select[data-testid="condition-operation"]') && ui.querySelectorAll('#condition-list .children select[data-testid="condition-path-suggestions"] option').length > 1));
+      conditionSelect = ui.querySelector('#condition-list select[data-testid="condition-operation"]');
+      conditionSelect.value = 'regex'; conditionSelect.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      const conditionPath = ui.querySelector('#condition-list input[data-testid="condition-path"]'); conditionPath.value = '["missingField"]'; conditionPath.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      check('leaf operation exposes regex pattern and flags', Boolean(ui.querySelector('[data-testid="condition-regex-pattern"]') && ui.querySelector('[data-testid="condition-regex-flags"]')));
+      const regexFlags = ui.querySelector('[data-testid="condition-regex-flags"]'); regexFlags.value = 'i'; regexFlags.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      check('committing regex flags updates the compiled builder state', app.getState().builder.condition.children[0].flags === 'i');
+      const rootPathSuggestion = ui.querySelector('#condition-list select[data-testid="condition-path-suggestions"]');
+      const teamOption = Array.from(rootPathSuggestion.options).find((option) => option.textContent === '["team"]');
+      if (teamOption) { rootPathSuggestion.value = teamOption.value; rootPathSuggestion.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true })); }
+      check('selecting a suggested path commits it into controller state', JSON.stringify(app.getState().builder.condition.children[0].path) === '["team"]');
+      const malformedPath = ui.querySelector('#condition-list input[data-testid="condition-path"]'); malformedPath.value = '["unterminated"'; malformedPath.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      check('malformed structured paths show validation and disable builder actions', Boolean(ui.getElementById('builder-warning') && !ui.getElementById('builder-warning').hidden && ui.getElementById('run-query').disabled && ui.getElementById('copy-generated').disabled && JSON.stringify(app.getState().builder.condition.children[0].path) === '["team"]'));
+      malformedPath.value = '["missingField"]'; malformedPath.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      ui.getElementById('add-group').click();
+      check('nested AND/OR group is reachable from the interface', Boolean(ui.querySelectorAll('#condition-list select[data-testid="condition-group-logic"]').length > 1));
+      let nestedGroup = ui.querySelector('#condition-list .group .group');
+      const nestedLogic = nestedGroup?.querySelector('select[data-testid="condition-group-logic"]'); if (nestedLogic) { nestedLogic.value = 'or'; nestedLogic.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true })); }
+       nestedGroup = ui.querySelector('#condition-list .group .group'); nestedGroup?.querySelector('button[data-testid="condition-add"]')?.click();
+      ui.getElementById('add-condition').click();
+      check('each group can add local predicates to form (A OR B) AND C', app.getState().builder.condition.op === 'and' && app.getState().builder.condition.children.length === 3 && app.getState().builder.condition.children[1].kind === 'group' && app.getState().builder.condition.children[1].op === 'or' && app.getState().builder.condition.children[1].children.length === 2);
+      const logic = ui.querySelector('#condition-list .group .group select[data-testid="condition-group-logic"]');
+      if (logic) { logic.value = 'not'; logic.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true })); }
+      check('switching a populated group to NOT preserves siblings in a child group', app.getState().builder.condition.children[1].op === 'not' && app.getState().builder.condition.children[1].children.length === 1 && app.getState().builder.condition.children[1].children[0].kind === 'group' && app.getState().builder.condition.children[1].children[0].op === 'or' && app.getState().builder.condition.children[1].children[0].children.length === 2);
+      check('condition tree control names are unique and field inputs have visible labels', (() => { const controls = Array.from(ui.querySelectorAll('#condition-list [aria-label]')); const names = controls.map((control) => control.getAttribute('aria-label')); return names.length === new Set(names).size && Array.from(ui.querySelectorAll('#condition-list input[data-testid="condition-path"]')).every((input) => input.labels && input.labels.length); })());
+      const notGroupDom = Array.from(ui.querySelectorAll('#condition-list .group')).find((group) => group.dataset.conditionPath === '[1]');
+      const notGroupActions = Array.from(notGroupDom?.children || []).find((child) => child.classList.contains('group-actions'));
+      check('NOT blocks adding a second child', Boolean(notGroupActions?.querySelector('button[aria-label^="Add condition"]')?.disabled));
+      conditionSelect = ui.querySelector('#condition-list .leaf select[data-testid="condition-operation"]'); conditionSelect.value = 'any'; conditionSelect.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      ui.querySelector('#condition-list .leaf button[data-testid="condition-group-array"]')?.click();
+      check('any/all child can be converted into a compound group', app.getState().builder.condition.children[0].child?.kind === 'group');
+      check('compound any/all child group is visibly marked required', Boolean(ui.querySelector('#condition-list .array-child > .group button[data-testid="condition-group-remove"]')?.disabled));
+      ui.querySelector('#condition-list .array-child .group .group-actions button[aria-label^="Add condition"]')?.click();
+      check('compound array child supports its own nested predicate controls', app.getState().builder.condition.children[0].child.children.length === 2);
+      ui.getElementById('add-step').click();
+      check('ordered regex transformation controls are reachable', Boolean(ui.querySelector('[aria-label^="Transformation 1"]') && ui.querySelector('[aria-label="Move transformation 1 down"]')));
+      const stepOps = ui.querySelector('[aria-label="Transformation 1"]');
+      check('all ordered transformation operations are selectable', ['match', 'capture', 'sub', 'gsub'].every((op) => Array.from(stepOps.options).some((option) => option.value === op)));
+      ui.querySelector('[aria-label="Transformation 1"]').value = 'gsub'; ui.querySelector('[aria-label="Transformation 1"]').dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      check('gsub exposes pattern, flags, replacement, and emit/update behavior', Boolean(ui.querySelector('[aria-label="Transformation 1 regex pattern"]') && ui.querySelector('[aria-label="Transformation 1 regex flags"]') && ui.querySelector('[aria-label="Transformation 1 replacement"]') && ui.querySelector('[aria-label="Transformation 1 behavior"]')));
+      ui.getElementById('add-step').click();
+      const secondPattern = ui.querySelector('[aria-label="Transformation 2 regex pattern"]'); secondPattern.value = 'second'; secondPattern.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      ui.querySelector('[aria-label="Move transformation 2 up"]').click();
+      check('ordered transformation movement changes execution order', app.getState().builder.steps[0].pattern === 'second', JSON.stringify(app.getState().builder.steps.map((step) => step.pattern)));
+      const stepPath = ui.querySelector('[aria-label="Transformation 2 path"]'); stepPath.value = '["members"]'; stepPath.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true })); stepPath.value = '["labels"]'; stepPath.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      const stepPattern = ui.querySelector('[aria-label="Transformation 2 regex pattern"]'); stepPattern.value = 'first'; stepPattern.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true })); stepPattern.value = 'latest'; stepPattern.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      const stepReplacement = ui.querySelector('[aria-label="Transformation 2 replacement"]'); stepReplacement.value = 'older'; stepReplacement.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true })); stepReplacement.value = 'newer'; stepReplacement.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      check('successive step path, pattern, and replacement edits stay attached', JSON.stringify(app.getState().builder.steps[1].path) === '["labels"]' && app.getState().builder.steps[1].pattern === 'latest' && app.getState().builder.steps[1].replacement === 'newer');
+      ui.getElementById('projection-toggle').click(); ui.getElementById('add-projection').click();
+      ui.getElementById('add-projection').click();
+      const aliasOne = ui.querySelector('[aria-label="Output field 1 name"]'); aliasOne.value = 'first'; aliasOne.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      const aliasOnePath = ui.querySelector('[aria-label="Output field 1 path"]'); aliasOnePath.value = '["team"]'; aliasOnePath.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      aliasOne.value = 'teamName'; aliasOne.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      const aliasTwo = ui.querySelector('[aria-label="Output field 2 name"]'); aliasTwo.value = 'members'; aliasTwo.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      const aliasTwoPath = ui.querySelector('[aria-label="Output field 2 path"]'); aliasTwoPath.value = '["members"]'; aliasTwoPath.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      check('successive edits to projection aliases and paths persist independently', app.getState().builder.projection[0].name === 'teamName' && JSON.stringify(app.getState().builder.projection[0].path) === '["team"]' && app.getState().builder.projection[1].name === 'members' && JSON.stringify(app.getState().builder.projection[1].path) === '["members"]');
+      aliasTwo.value = 'teamName'; aliasTwo.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      check('builder validation errors stay out of generated jq and disable actions', !ui.getElementById('builder-warning').hidden && ui.getElementById('run-query').disabled && ui.getElementById('copy-generated').disabled && !ui.getElementById('generated-filter').textContent.includes('Builder needs attention'));
+      aliasTwo.value = 'members'; aliasTwo.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      ui.getElementById('collect-output').click();
+      check('projection aliases, paths, and stream/collect choice are usable', Boolean(ui.querySelector('[aria-label="Output field 1 name"]') && ui.querySelector('[aria-label="Output field 1 path"]') && app.getState().collect));
+      ui.getElementById('custom-filter').value = '. + 1'; ui.getElementById('custom-filter').dispatchEvent(new frame.contentWindow.Event('input', { bubbles: true }));
+      ui.getElementById('custom-mode').click(); ui.getElementById('builder-mode').click();
+      check('switching modes preserves custom text and builder conditions', app.getState().customFilter === '. + 1' && app.getState().builder.condition.children.length > 0);
+      let confirmCalls = 0; frame.contentWindow.confirm = () => { confirmCalls += 1; return false; };
+      const keptCustom = app.getState().customFilter; ui.getElementById('copy-generated').click();
+      check('copy-to-custom asks before replacing an existing custom filter', confirmCalls === 1 && app.getState().customFilter === keptCustom, JSON.stringify({ confirmCalls, copyDisabled: ui.getElementById('copy-generated').disabled, warning: ui.getElementById('builder-warning').textContent }));
+      ui.getElementById('source-kind').value = 'items'; ui.getElementById('source-kind').dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      ui.getElementById('source-path').value = '["members"]'; ui.getElementById('source-path').dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      ui.getElementById('source-path').value = '["labels"]'; ui.getElementById('source-path').dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      ui.getElementById('source-path').value = '["members"]'; ui.getElementById('source-path').dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      check('successive source path edits update current state', JSON.stringify(app.getState().builder.source.path) === '["members"]');
+      check('array source path and source-relative suggestions are available', ui.getElementById('source-path') && ui.getElementById('source-suggestions').textContent.includes('each selected array item'));
+      check('JSON, JSONC, and JSONL formats are explicit options', ['json', 'jsonc', 'jsonl'].every((format) => Array.from(ui.getElementById('input-format').options).some((option) => option.value === format)));
+      ui.getElementById('input-format').value = 'jsonc'; ui.getElementById('input-text').value = '{ // comment\n "loaded": 1, }'; ui.getElementById('input-text').dispatchEvent(new frame.contentWindow.Event('input', { bubbles: true })); ui.getElementById('input-format').dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      check('JSONC input accepts comments and trailing commas', ui.getElementById('input-warning').hidden);
+      ui.getElementById('input-format').value = 'jsonl'; ui.getElementById('input-text').value = '{"loaded":1}\n{"loaded":2}'; ui.getElementById('input-text').dispatchEvent(new frame.contentWindow.Event('input', { bubbles: true })); ui.getElementById('input-format').dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true }));
+      check('JSONL input accepts independent values per line', ui.getElementById('input-warning').hidden);
+      const filePicker = ui.getElementById('input-file'); const testFile = new frame.contentWindow.File(['{"fromFile":true}'], 'loaded.json', { type: 'application/json' }); Object.defineProperty(filePicker, 'files', { configurable: true, value: [testFile] }); filePicker.dispatchEvent(new frame.contentWindow.Event('change', { bubbles: true })); await new Promise((resolve) => setTimeout(resolve, 30));
+      check('file picker loads text and selects the explicit extension format', ui.getElementById('input-text').value === '{"fromFile":true}' && ui.getElementById('input-format').value === 'json');
+      ui.getElementById('input-text').value = '{"newField":1}'; ui.getElementById('input-text').dispatchEvent(new frame.contentWindow.Event('input', { bubbles: true }));
+      check('replacing data keeps conditions and warns about unavailable paths', app.getState().builder.condition.children.length > 0 && !ui.getElementById('condition-warning').hidden);
+      ui.querySelector('#condition-list button[data-testid="condition-remove"]').focus(); ui.querySelector('#condition-list button[data-testid="condition-remove"]').click();
+      check('removing a condition returns focus to a stable add control', ui.activeElement === ui.getElementById('add-condition'));
+      ui.getElementById('input-text').value = '{'; ui.getElementById('input-text').dispatchEvent(new frame.contentWindow.Event('input', { bubbles: true }));
+      check('invalid input is visible and Run is disabled without losing filters', !ui.getElementById('input-warning').hidden && ui.getElementById('run-query').disabled && app.getState().customFilter === keptCustom);
+      ui.getElementById('input-text').value = '1'; ui.getElementById('input-text').dispatchEvent(new frame.contentWindow.Event('input', { bubbles: true }));
+      ui.getElementById('input-text').value = '{"x":1}'; ui.getElementById('input-text').dispatchEvent(new frame.contentWindow.Event('input', { bubbles: true }));
+      ui.getElementById('custom-mode').click(); ui.getElementById('custom-filter').value = '.'; ui.getElementById('custom-filter').dispatchEvent(new frame.contentWindow.Event('input', { bubbles: true }));
+      const uiComplete = waitForEvent(app, (next, status, result) => status === 'complete' && result);
+      ui.getElementById('run-query').click(); const uiRunResult = await uiComplete;
+      check('Run button executes the selected mode and renders its result', uiRunResult.result.outputText.includes('x') && ui.getElementById('run-status').textContent === 'COMPLETE');
+      ui.getElementById('custom-filter').value = 'range(0; 1000000000)'; ui.getElementById('custom-filter').dispatchEvent(new frame.contentWindow.Event('input', { bubbles: true }));
+      const uiRunning = waitForEvent(app, (next, status) => status === 'running'); ui.getElementById('run-query').click(); await uiRunning;
+      check('running result is not eligible for copy or download', ui.getElementById('copy-results').disabled && ui.getElementById('download-result').disabled);
+      const uiCancelled = waitForEvent(app, (next, status) => status === 'cancelled'); ui.getElementById('cancel-query').click(); await uiCancelled;
+      check('Cancel button terminates a running query with a distinct status', ui.getElementById('run-status').textContent === 'CANCELLED' && ui.getElementById('cancel-query').disabled);
+      check('cancelled result is not eligible for copy or download', ui.getElementById('copy-results').disabled && ui.getElementById('download-result').disabled);
+      const verifyFrame = ui.createElement('iframe'); verifyFrame.title = 'focused builder interaction checks'; verifyFrame.style.cssText = 'width:100%;height:900px;border:0'; verifyFrame.src = frame.contentWindow.location.href; ui.body.append(verifyFrame);
+      await new Promise((resolve, reject) => { const deadline = Date.now() + 8000; const poll = () => { if (verifyFrame.contentDocument?.documentElement.dataset.uiReady === 'true') return resolve(); if (Date.now() > deadline) return reject(new Error('focused UI frame did not initialize: ' + JSON.stringify({ href: verifyFrame.contentWindow.location.href, app: Boolean(verifyFrame.contentWindow.JQApp), ready: verifyFrame.contentDocument?.readyState, error: verifyFrame.contentDocument?.documentElement.dataset.uiError }))); setTimeout(poll, 15); }; poll(); });
+      const testApp = verifyFrame.contentWindow.JQApp; const testUi = verifyFrame.contentDocument;
+      testUi.getElementById('input-text').value = '{"teams":[{"people":[{"name":"Ada"}]}]}'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      testUi.getElementById('add-condition').click();
+      let arrayLeaf = testUi.querySelector('#condition-list > .group > .children > .leaf [data-testid="condition-operation"]'); arrayLeaf.value = 'any'; arrayLeaf.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      let rootArrayPath = testUi.querySelector('#condition-list > .group > .children > .leaf input[data-testid="condition-path"]'); rootArrayPath.value = '["teams"]'; rootArrayPath.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      const requiredArrayChild = testUi.querySelector('#condition-list .array-child > .leaf');
+      check('required any/all child cannot be removed or disappear from saved state', Boolean(requiredArrayChild.querySelector('button[data-testid="condition-remove"]').disabled) && testApp.getState().builder.condition.children[0].child !== undefined && !testUi.getElementById('run-query').disabled);
+      let arrayFieldPath = testUi.querySelector('#condition-list .array-child > .leaf input[data-testid="condition-path"]'); arrayFieldPath.value = '["people"]'; arrayFieldPath.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      const nestedArrayOperation = testUi.querySelector('#condition-list .array-child > .leaf [data-testid="condition-operation"]'); nestedArrayOperation.value = 'any'; nestedArrayOperation.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      const nestedArrayPath = testUi.querySelector('#condition-list .array-child > .leaf input[data-testid="condition-path"]'); nestedArrayPath.value = '["people"]'; nestedArrayPath.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      let nestedFieldPath = testUi.querySelector('#condition-list .array-child .array-child > .leaf input[data-testid="condition-path"]'); nestedFieldPath.value = '["name"]'; nestedFieldPath.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      check('nested array predicates derive suggestions from their current item pool', testUi.getElementById('condition-warning').hidden && Array.from(testUi.querySelectorAll('#condition-list .array-child .array-child select[data-testid="condition-path-suggestions"] option')).some((option) => option.textContent === '["name"]'));
+      testUi.getElementById('input-text').value = '{"teams":[]}'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      check('input replacement refreshes missing-path warnings without deleting predicates', !testUi.getElementById('condition-warning').hidden && testApp.getState().builder.condition.children.length === 1);
+      testUi.querySelector('#condition-list > .group > .children > .leaf button[data-testid="condition-remove"]').click(); testUi.getElementById('input-text').value = '{"name":"Alice"}'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      testUi.getElementById('add-condition').click(); arrayLeaf = testUi.querySelector('#condition-list select[data-testid="condition-operation"]'); arrayLeaf.value = 'regex'; arrayLeaf.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      const suggestedName = testUi.querySelector('#condition-list select[data-testid="condition-path-suggestions"]'); const nameOption = Array.from(suggestedName.options).find((option) => option.textContent === '["name"]'); suggestedName.value = nameOption.value; suggestedName.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      let regexInput = testUi.querySelector('[data-testid="condition-regex-pattern"]'); regexInput.value = 'alice'; regexInput.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      let contextualFlags = testUi.querySelector('[data-testid="condition-regex-flags"]'); contextualFlags.value = ''; contextualFlags.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      let caseResultEvent = waitForEvent(testApp, (next, status, result) => status === 'complete' && result); testUi.getElementById('run-query').click(); const caseResult = await caseResultEvent;
+      contextualFlags = testUi.querySelector('[data-testid="condition-regex-flags"]'); contextualFlags.value = 'i'; contextualFlags.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      testUi.getElementById('add-step').click(); testUi.querySelector('[aria-label="Transformation 1"]').value = 'sub'; testUi.querySelector('[aria-label="Transformation 1"]').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      let transformPath = testUi.querySelector('[aria-label="Transformation 1 path"]'); transformPath.value = '["team"]'; transformPath.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); transformPath.value = '["name"]'; transformPath.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      let transformPattern = testUi.querySelector('[aria-label="Transformation 1 regex pattern"]'); transformPattern.value = 'Bob'; transformPattern.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); transformPattern.value = 'Alice'; transformPattern.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      let transformReplacement = testUi.querySelector('[aria-label="Transformation 1 replacement"]'); transformReplacement.value = 'Old'; transformReplacement.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); transformReplacement.value = 'Ada'; transformReplacement.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      testUi.querySelector('[aria-label="Transformation 1 behavior"]').value = 'update'; testUi.querySelector('[aria-label="Transformation 1 behavior"]').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      check('step controls retain successive path, pattern, and replacement values', JSON.stringify(testApp.getState().builder.steps[0].path) === '["name"]' && testApp.getState().builder.steps[0].pattern === 'Alice' && testApp.getState().builder.steps[0].replacement === 'Ada');
+      caseResultEvent = waitForEvent(testApp, (next, status, result) => status === 'complete' && result); testUi.getElementById('run-query').click(); const insensitiveResult = await caseResultEvent;
+      check('regex case flag changes actual matching output', caseResult.result.valueCount === 0 && insensitiveResult.result.outputText.includes('Ada'));
+      testUi.getElementById('input-text').value = '{"records":[{"name":"Alice"}]}'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      testUi.getElementById('source-kind').value = 'items'; testUi.getElementById('source-kind').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      testUi.getElementById('source-path').value = '["records"]'; testUi.getElementById('source-path').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      testUi.getElementById('projection-toggle').click(); testUi.getElementById('add-projection').click();
+      let resultAlias = testUi.querySelector('[aria-label="Output field 1 name"]'); resultAlias.value = 'oldName'; resultAlias.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); resultAlias.value = 'displayName'; resultAlias.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      let resultPath = testUi.querySelector('[aria-label="Output field 1 path"]'); resultPath.value = '["team"]'; resultPath.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); resultPath.value = '["name"]'; resultPath.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+       const projectedRun = waitForEvent(testApp, (next, status, result) => status === 'complete' && result); testUi.getElementById('run-query').click(); const projectedResult = await projectedRun;
+       check('selected source and successive projection edits shape actual query output', testApp.getState().builder.source.kind === 'items' && JSON.stringify(testApp.getState().builder.source.path) === '["records"]' && testApp.getState().builder.projection[0].name === 'displayName' && projectedResult.result.outputText.includes('"displayName":"Ada"'));
+      testUi.getElementById('input-text').value = '{"value":1}'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true })); testUi.getElementById('custom-mode').click(); testUi.getElementById('custom-filter').value = '.'; testUi.getElementById('custom-filter').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      const oversizeComplete = waitForEvent(testApp, (next, status, result) => status === 'complete' && result); testUi.getElementById('run-query').click(); await oversizeComplete;
+      testUi.getElementById('input-text').value = 'x'.repeat(5 * 1024 * 1024 + 1); testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      check('oversized draft clears old result and marks presentation stale', testUi.getElementById('run-status').dataset.state === 'stale' && testUi.getElementById('query-output').textContent === '' && !testUi.getElementById('run-warning').hidden && /5 MiB/.test(testUi.getElementById('run-warning').textContent) && testUi.getElementById('run-query').disabled);
+      testUi.getElementById('builder-mode').click(); testUi.getElementById('collect-output').click();
+      check('mode and setting changes cannot restore a result for an invalid draft', testUi.getElementById('run-status').dataset.state === 'stale' && testUi.getElementById('query-output').textContent === '' && testUi.getElementById('run-query').disabled);
+      testUi.getElementById('input-text').value = '{"value":2}'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      check('valid correction recovers to stale-unrun state without old output', testUi.getElementById('run-status').dataset.state === 'stale' && testUi.getElementById('query-output').textContent === '' && testUi.getElementById('input-warning').hidden && !testUi.getElementById('run-query').disabled, JSON.stringify({ warning: testUi.getElementById('builder-warning').textContent, pathWarning: testUi.getElementById('condition-warning').textContent, runDisabled: testUi.getElementById('run-query').disabled }));
+      testUi.getElementById('custom-mode').click(); testUi.getElementById('custom-filter').value = '.'; testUi.getElementById('custom-filter').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      const recoveredRun = waitForEvent(testApp, (next, status, result) => status === 'complete' && result); testUi.getElementById('run-query').click(); await recoveredRun;
+      testUi.getElementById('custom-filter').value = '., error("visible failure")'; testUi.getElementById('custom-filter').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      const uiErrorEvent = waitForEvent(testApp, (next, status) => status === 'error'); testUi.getElementById('run-query').click(); await uiErrorEvent;
+      check('worker error is announced in status and warning with safe partial-result behavior', testUi.getElementById('run-status').dataset.state === 'error' && /ERROR/.test(testUi.getElementById('run-status').textContent) && !testUi.getElementById('run-warning').hidden && /visible failure/.test(testUi.getElementById('run-warning').textContent) && testUi.getElementById('query-output').textContent === '', JSON.stringify({ status: testUi.getElementById('run-status').textContent, warning: testUi.getElementById('run-warning').textContent, output: testUi.getElementById('query-output').textContent }));
+      const markupPayload = '<scr' + 'ipt>bad()</scr' + 'ipt>'; testUi.getElementById('custom-filter').value = JSON.stringify(markupPayload); testUi.getElementById('custom-filter').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      check('changing a failed query marks old result stale and clears preview', testUi.getElementById('run-status').dataset.state === 'stale' && testUi.getElementById('query-output').textContent === '' && testUi.getElementById('run-warning').hidden);
+      const scriptRun = waitForEvent(testApp, (next, status, result) => status === 'complete' && result); testUi.getElementById('run-query').click(); const scriptResult = await scriptRun;
+      check('script-like query result is rendered as text through worker subscription', scriptResult.result.outputText.includes(markupPayload) && testUi.getElementById('query-output').textContent.includes(markupPayload) && testUi.getElementById('query-output').querySelector('script') === null);
+      testUi.getElementById('custom-filter').value = 'reduce range(0; 1000000000000) as $i (0; . + 1)'; testUi.getElementById('custom-filter').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      const uiTimeoutEvent = waitForEvent(testApp, (next, status) => status === 'timeout' || status === 'error' || status === 'complete'); testUi.getElementById('run-query').click(); const timeoutOutcome = await uiTimeoutEvent;
+      check('timeout state and warning are rendered by the UI subscription', timeoutOutcome.status === 'timeout' && testUi.getElementById('run-status').dataset.state === 'timeout' && /TIMEOUT/.test(testUi.getElementById('run-status').textContent) && !testUi.getElementById('run-warning').hidden && /timed out/i.test(testUi.getElementById('run-warning').textContent), JSON.stringify({ status: timeoutOutcome.status, ui: testUi.getElementById('run-status').textContent, warning: testUi.getElementById('run-warning').textContent }));
+      if (testUi.getElementById('collect-output').checked) testUi.getElementById('collect-output').click();
+      testUi.getElementById('custom-filter').value = 'range(0; 1002)'; testUi.getElementById('custom-filter').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+       const truncatedEvent = waitForEvent(testApp, (next, status, result) => ['truncated','error','complete'].includes(status) && result); testUi.getElementById('run-query').click(); const truncatedOutcome = await truncatedEvent;
+      check('truncated result warning is visible and result is marked incomplete', truncatedOutcome.status === 'truncated' && !testUi.getElementById('run-warning').hidden && testUi.getElementById('run-status').dataset.state === 'truncated' && truncatedOutcome.result.complete === false && /truncated/i.test(testUi.getElementById('run-warning').textContent), JSON.stringify({ status: truncatedOutcome.status, warning: testUi.getElementById('run-warning').textContent }));
+      const downloads = [], capturedBlobs = [], revokedUrls = [], clipboardWrites = [];
+      const NativeBlob = verifyFrame.contentWindow.Blob;
+      verifyFrame.contentWindow.Blob = class extends NativeBlob { constructor(parts, options) { super(parts, options); capturedBlobs.push(this); } };
+      verifyFrame.contentWindow.URL.createObjectURL = (blob) => { const url = `blob:task5-${downloads.length + 1}`; downloads.push({ blob, url }); return url; };
+      verifyFrame.contentWindow.URL.revokeObjectURL = (url) => revokedUrls.push(url);
+      verifyFrame.contentWindow.HTMLAnchorElement.prototype.click = function () { if (this.download) downloads.push({ filename: this.download, url: this.href }); };
+      Object.defineProperty(verifyFrame.contentWindow.navigator, 'clipboard', { configurable: true, value: { writeText: async (text) => clipboardWrites.push(text) } });
+      async function settleUI() { await new Promise((resolve) => setTimeout(resolve, 25)); }
+      async function downloadAndRead(button) { const start = downloads.length; button.click(); await settleUI(); const events = downloads.slice(start); const link = events.find((item) => item.filename); const file = events.find((item) => item.blob); return { event: link, text: file ? await file.blob.text() : '' }; }
+      async function importRecipeFile(text, name = 'recipe.json') { const input = testUi.getElementById('recipe-file'); Object.defineProperty(input, 'files', { configurable: true, value: [new verifyFrame.contentWindow.File([text], name, { type: 'application/json' })] }); input.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); await settleUI(); }
+      check('recipe warning is explicit and include-input defaults off', testUi.querySelector('.recipe-tools').textContent.includes('Recipes can contain sensitive filter literals.') && !testUi.getElementById('recipe-include-input').checked);
+      testUi.getElementById('input-text').value = '[{"v":1},{"v":2}]'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true })); testUi.getElementById('input-format').value = 'json'; testUi.getElementById('input-format').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      testUi.getElementById('custom-mode').click(); testUi.getElementById('custom-filter').value = '.[] | .v'; testUi.getElementById('custom-filter').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      const expectedActiveFilter = verifyFrame.contentWindow.JQCore.effectiveFilter('.[] | .v', false);
+      testUi.getElementById('copy-filter').click(); await settleUI();
+      check('copy active filter uses exact current mode and collection', clipboardWrites.at(-1) === expectedActiveFilter);
+      testUi.getElementById('collect-output').click();
+      const expectedCollected = verifyFrame.contentWindow.JQCore.effectiveFilter('.[] | .v', true);
+      check('POSIX command preview and copy use effective active filter and placeholder only', testUi.getElementById('command-preview').textContent === verifyFrame.contentWindow.JQCore.shellCommand(expectedCollected, 'input.json') && testUi.getElementById('command-preview').textContent.includes('input.json') && !testUi.getElementById('command-preview').textContent.includes('{"v":1}'));
+      testUi.getElementById('copy-command').click(); await settleUI();
+      check('copy command matches JQCore.shellCommand exactly', clipboardWrites.at(-1) === verifyFrame.contentWindow.JQCore.shellCommand(expectedCollected, 'input.json'));
+      Object.defineProperty(verifyFrame.contentWindow.navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('clipboard denied'); } } });
+      testUi.getElementById('copy-filter').click(); await settleUI();
+      check('clipboard rejection shows selectable text fallback', !testUi.getElementById('export-fallback').hidden && testUi.getElementById('export-fallback').value === expectedCollected && testUi.getElementById('export-fallback').selectionStart === 0 && testUi.getElementById('export-fallback').selectionEnd === expectedCollected.length);
+      Object.defineProperty(verifyFrame.contentWindow.navigator, 'clipboard', { configurable: true, value: { writeText: async (text) => clipboardWrites.push(text) } });
+      testUi.getElementById('collect-output').click();
+      let exportRun = waitForEvent(testApp, (next, status, result) => status === 'complete' && result); testUi.getElementById('run-query').click(); await exportRun;
+      testUi.getElementById('copy-results').click(); await settleUI();
+      check('copy results copies the exact complete streaming output', clipboardWrites.at(-1) === '1\n2' && !testUi.getElementById('copy-results').disabled);
+      const streamDownload = await downloadAndRead(testUi.getElementById('download-result'));
+      check('JSON array input still streams multiple outputs to a JSONL file', streamDownload.text.trim() === '1\n2' && streamDownload.event?.filename.endsWith('.jsonl'), JSON.stringify({ text: streamDownload.text, filename: streamDownload.event?.filename }));
+      Object.defineProperty(verifyFrame.contentWindow.navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('clipboard denied'); } } });
+      testUi.getElementById('copy-results').click(); await settleUI();
+      check('copy result clipboard failure exposes selected result text fallback', !testUi.getElementById('export-fallback').hidden && testUi.getElementById('export-fallback').value === '1\n2' && testUi.getElementById('export-fallback').selectionEnd === 3);
+      Object.defineProperty(verifyFrame.contentWindow.navigator, 'clipboard', { configurable: true, value: { writeText: async (text) => clipboardWrites.push(text) } });
+      testUi.getElementById('collect-output').click();
+      check('changing collection disables both copy and download of prior result', testUi.getElementById('copy-results').disabled && testUi.getElementById('download-result').disabled);
+      exportRun = waitForEvent(testApp, (next, status, result) => status === 'complete' && result); testUi.getElementById('run-query').click(); await exportRun;
+      testUi.getElementById('copy-results').click(); await settleUI();
+      check('collected result copy contains the exact complete array output', clipboardWrites.at(-1) === '[1,2]');
+      const collectedDownload = await downloadAndRead(testUi.getElementById('download-result'));
+      check('collected download uses JSON and contains one array', JSON.parse(collectedDownload.text)[0] === 1 && JSON.parse(collectedDownload.text)[1] === 2 && collectedDownload.event?.filename.endsWith('.json'), JSON.stringify({ text: collectedDownload.text, filename: collectedDownload.event?.filename }));
+      const jsonInputDownload = await downloadAndRead(testUi.getElementById('download-input'));
+      check('JSON input download keeps its JSON extension and array data', jsonInputDownload.text === '[{"v":1},{"v":2}]' && jsonInputDownload.event?.filename.endsWith('.json'));
+      testUi.getElementById('input-text').value = '{"v":3}'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true })); testUi.getElementById('input-format').value = 'jsonl'; testUi.getElementById('input-format').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      testUi.getElementById('input-text').value = '{"v":3}\n{"v":4}'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      const jsonlInputDownload = await downloadAndRead(testUi.getElementById('download-input'));
+      check('JSONL input export uses a JSONL filename and preserves normalized lines', jsonlInputDownload.text === '{"v":3}\n{"v":4}' && jsonlInputDownload.event?.filename.endsWith('.jsonl') && /\.jsonl/.test(testUi.getElementById('download-input').textContent));
+      testUi.getElementById('input-text').value = '[{"v":1},{"v":2}]'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true })); testUi.getElementById('input-format').value = 'json'; testUi.getElementById('input-format').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      exportRun = waitForEvent(testApp, (next, status, result) => status === 'complete' && result); testUi.getElementById('run-query').click(); await exportRun;
+      testUi.getElementById('input-text').value = 'x'.repeat(5 * 1024 * 1024 + 1); testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      check('oversized invalid visible draft blocks both result exports despite old controller result', testUi.getElementById('copy-results').disabled && testUi.getElementById('download-result').disabled && testUi.getElementById('run-status').dataset.state === 'stale' && testUi.getElementById('query-output').textContent === '');
+      testUi.getElementById('input-text').value = '[{"v":1},{"v":2}]'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      check('corrected input leaves both result exports disabled until rerun', testUi.getElementById('copy-results').disabled && testUi.getElementById('download-result').disabled && testUi.getElementById('run-status').dataset.state === 'stale');
+      testUi.getElementById('collect-output').click();
+      testUi.getElementById('custom-filter').value = 'range(0; 1002)'; testUi.getElementById('custom-filter').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      check('stale result cannot be copied or downloaded as complete', testUi.getElementById('copy-results').disabled && testUi.getElementById('download-result').disabled);
+      const cappedRun = waitForEvent(testApp, (next, status, result) => ['truncated','error'].includes(status) && result); testUi.getElementById('run-query').click(); const cappedResult = await cappedRun;
+      check('truncated result cannot be copied or downloaded as complete', cappedResult.status === 'truncated' && testUi.getElementById('copy-results').disabled && testUi.getElementById('download-result').disabled);
+      testUi.getElementById('custom-filter').value = '., error("export error")'; testUi.getElementById('custom-filter').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      const failedRun = waitForEvent(testApp, (next, status) => status === 'error'); testUi.getElementById('run-query').click(); await failedRun;
+      check('error result cannot be copied or downloaded as complete', testUi.getElementById('copy-results').disabled && testUi.getElementById('download-result').disabled);
+      const jsoncText = '{"large":123456789012345678901234567890, // keep number\n "items":[1,2,],}';
+      testUi.getElementById('input-text').value = jsoncText; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true })); testUi.getElementById('input-format').value = 'jsonc'; testUi.getElementById('input-format').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      const normalized = verifyFrame.contentWindow.JQCore.normalizeInput(jsoncText, 'jsonc').text;
+      check('JSONC warns about jq conversion and labels strict JSON download', !testUi.getElementById('conversion-warning').hidden && /\.json/.test(testUi.getElementById('download-input').textContent));
+      const inputDownload = await downloadAndRead(testUi.getElementById('download-input'));
+      check('JSONC input download normalizes strict JSON and preserves number lexeme', inputDownload.text === normalized && inputDownload.text.includes('123456789012345678901234567890') && inputDownload.event.filename.endsWith('.json'));
+      const recipeDownload = await downloadAndRead(testUi.getElementById('download-recipe'));
+      const recipeWithoutInput = JSON.parse(recipeDownload.text);
+      check('default recipe export omits raw input and runtime result metadata', !('inputText' in recipeWithoutInput) && !('revision' in recipeWithoutInput));
+      testUi.getElementById('recipe-include-input').click();
+      const recipeWithInputDownload = await downloadAndRead(testUi.getElementById('download-recipe'));
+      check('explicit recipe input option exports exact raw input', JSON.parse(recipeWithInputDownload.text).inputText === jsoncText);
+      const oldSensitiveInput = '{"oldSensitive":"secret-previous"}';
+      testUi.getElementById('input-text').value = oldSensitiveInput; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true })); testUi.getElementById('input-format').value = 'json'; testUi.getElementById('input-format').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      const malformedVisibleInput = '{"newVisible":"draft",';
+      testUi.getElementById('input-text').value = malformedVisibleInput; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true })); testUi.getElementById('input-format').value = 'jsonc'; testUi.getElementById('input-format').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+      const visibleInputRecipeDownload = await downloadAndRead(testUi.getElementById('download-recipe'));
+      const visibleInputRecipe = JSON.parse(visibleInputRecipeDownload.text);
+      check('explicit recipe exports malformed visible draft and selected format, not prior accepted sensitive input', visibleInputRecipe.inputText === malformedVisibleInput && visibleInputRecipe.format === 'jsonc' && !visibleInputRecipeDownload.text.includes('secret-previous'));
+      testUi.getElementById('recipe-include-input').click();
+      const invalidFreeRecipeDownload = await downloadAndRead(testUi.getElementById('download-recipe'));
+      const invalidFreeRecipe = JSON.parse(invalidFreeRecipeDownload.text);
+      check('input-free recipe omits hidden data and follows visible format despite invalid draft', !('inputText' in invalidFreeRecipe) && invalidFreeRecipe.format === 'jsonc');
+      testUi.getElementById('recipe-include-input').click();
+      testUi.getElementById('input-text').value = 'x'.repeat(5 * 1024 * 1024 + 1); testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      const overLimitDownloadCount = downloads.length; const overLimitBlobCount = capturedBlobs.length;
+      testUi.getElementById('download-recipe').click(); await settleUI();
+      check('oversized visible draft blocks explicit input recipe with clear warning and no Blob/download', !testUi.getElementById('recipe-warning').hidden && /5 MiB/.test(testUi.getElementById('recipe-warning').textContent) && downloads.length === overLimitDownloadCount && capturedBlobs.length === overLimitBlobCount);
+      testUi.getElementById('recipe-include-input').click();
+      const oversizedInputFree = await downloadAndRead(testUi.getElementById('download-recipe'));
+      const oversizedInputFreeRecipe = JSON.parse(oversizedInputFree.text);
+      check('input-free recipe still exports selected format without oversized visible data', !('inputText' in oversizedInputFreeRecipe) && oversizedInputFreeRecipe.format === 'jsonc');
+      testUi.getElementById('input-text').value = '{"kept":true}'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true })); testUi.getElementById('input-format').value = 'json'; testUi.getElementById('input-format').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); testUi.getElementById('custom-filter').value = '.'; testUi.getElementById('custom-filter').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+      const stableRun = waitForEvent(testApp, (next, status, result) => status === 'complete' && result); testUi.getElementById('run-query').click(); await stableRun;
+      const stableState = JSON.stringify(testApp.getState()); const stableOutput = testUi.getElementById('query-output').textContent;
+      await importRecipeFile('{"version":1,"format":"json","builder":{},"customFilter":".","mode":"custom","collect":false,"executable":"no"}');
+      check('invalid recipe import leaves app state and result controls untouched', JSON.stringify(testApp.getState()) === stableState && testUi.getElementById('query-output').textContent === stableOutput && !testUi.getElementById('recipe-warning').hidden);
+      const recipeBuilder = { source: { kind: 'items', path: ['rows'] }, condition: { kind: 'group', op: 'and', children: [{ kind: 'leaf', path: ['active'], op: 'eq', value: true }, { kind: 'group', op: 'or', children: [{ kind: 'leaf', path: ['name'], op: 'regex', value: 'Ada', flags: 'i' }, { kind: 'leaf', path: ['scores'], op: 'any', child: { kind: 'leaf', path: [], op: 'gt', value: 1 } }] }] }, steps: [{ op: 'gsub', path: ['name'], mode: 'update', pattern: 'Ada', flags: 'g', replacement: 'Grace' }], projection: [{ name: 'person', path: ['name'] }] };
+      const importedInput = '{"rows":[{"active":true,"name":"Ada","scores":[2]}]}';
+      const task5RecipeState = { ...testApp.getState(), inputText: importedInput, format: 'jsonl', builder: recipeBuilder, customFilter: '.name', mode: 'custom', collect: true };
+      await importRecipeFile(verifyFrame.contentWindow.JQCore.exportRecipe(task5RecipeState, true));
+      check('valid recipe import refreshes every UI setting and nested editor', testApp.getState().inputText === importedInput && testUi.getElementById('input-text').value === importedInput && testUi.getElementById('input-format').value === 'jsonl' && testUi.getElementById('source-kind').value === 'items' && testUi.getElementById('source-path').value === '["rows"]' && testApp.getState().builder.condition.children[1].kind === 'group' && testUi.querySelectorAll('#condition-list [data-testid="condition-group-logic"]').length >= 2 && testUi.querySelector('[aria-label="Transformation 1 regex pattern"]') && testUi.querySelector('[aria-label="Output field 1 name"]').value === 'person' && testUi.getElementById('builder-panel').hidden && !testUi.getElementById('custom-panel').hidden && testUi.getElementById('custom-filter').value === '.name' && testUi.getElementById('collect-output').checked && testUi.getElementById('run-status').dataset.state === 'stale');
+      const inputFreeRecipe = JSON.parse(verifyFrame.contentWindow.JQCore.exportRecipe({ ...task5RecipeState, inputText: 'not exported', format: 'json' }, false));
+      await importRecipeFile(JSON.stringify(inputFreeRecipe));
+      check('input-free recipe preserves current raw input while applying format', testUi.getElementById('input-text').value === importedInput && testUi.getElementById('input-format').value === 'json' && testUi.getElementById('input-warning').hidden);
+      const invalidInputRecipe = { ...JSON.parse(verifyFrame.contentWindow.JQCore.exportRecipe(task5RecipeState, false)), format: 'json', inputText: '{', mode: 'custom', customFilter: '. + 1' };
+      await importRecipeFile(JSON.stringify(invalidInputRecipe));
+       check('valid recipe with invalid input remains editable and reports input error', testUi.getElementById('input-text').value === '{' && !testUi.getElementById('input-warning').hidden && testUi.getElementById('custom-mode').getAttribute('aria-pressed') === 'true' && testUi.getElementById('custom-filter').value === '. + 1' && testUi.getElementById('run-query').disabled);
+       testUi.getElementById('input-text').value = '{"old":1}'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true })); testUi.getElementById('input-format').value = 'json'; testUi.getElementById('input-format').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+       const malformedDraft = '{"new":'; testUi.getElementById('input-text').value = malformedDraft; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+       const inputFreeDraftRecipe = verifyFrame.contentWindow.JQCore.exportRecipe({ ...testApp.getState(), format: 'jsonl' }, false);
+       await importRecipeFile(inputFreeDraftRecipe);
+       check('input-free import preserves malformed visible draft while applying recipe format', testUi.getElementById('input-text').value === malformedDraft && testApp.getState().inputText === malformedDraft && testUi.getElementById('input-format').value === 'jsonl' && !testUi.getElementById('input-warning').hidden);
+       const oversizedDraft = 'x'.repeat(5 * 1024 * 1024 + 1); testUi.getElementById('input-text').value = oversizedDraft; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+       const oversizedImportState = JSON.stringify(testApp.getState()); const oversizedImportRecipe = verifyFrame.contentWindow.JQCore.exportRecipe({ ...testApp.getState(), format: 'json' }, false); await importRecipeFile(oversizedImportRecipe); await new Promise((resolve) => setTimeout(resolve, 250));
+       check('input-free import rejects oversized visible draft without state mutation', testUi.getElementById('input-text').value === oversizedDraft && JSON.stringify(testApp.getState()) === oversizedImportState && !testUi.getElementById('recipe-warning').hidden && /5 MiB/.test(testUi.getElementById('recipe-warning').textContent), JSON.stringify({ state: testApp.getState(), before: JSON.parse(oversizedImportState), warning: testUi.getElementById('recipe-warning').textContent }));
+       testUi.getElementById('input-text').value = '1'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true })); testUi.getElementById('input-format').value = 'jsonl'; testUi.getElementById('input-format').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+       testUi.getElementById('add-condition').click(); let transitionOperation = testUi.querySelector('#condition-list select[data-testid="condition-operation"]'); transitionOperation.value = 'eq'; transitionOperation.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+       const transitionValue = testUi.querySelector('#condition-list input[data-testid="condition-value"]'); transitionValue.value = '1'; transitionValue.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); transitionOperation = testUi.querySelector('#condition-list select[data-testid="condition-operation"]'); transitionOperation.value = 'exists'; transitionOperation.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+       const transitionedLeaf = testApp.getState().builder.condition.children.at(-1); let transitionRecipeOk = true; try { verifyFrame.contentWindow.JQCore.importRecipe(verifyFrame.contentWindow.JQCore.exportRecipe(testApp.getState())); } catch (_) { transitionRecipeOk = false; }
+       check('operation transition removes stale leaf fields for recipe round trips', transitionRecipeOk && Object.keys(transitionedLeaf).sort().join(',') === 'kind,op,path');
+        testApp.setBuilder({ source: { kind: 'root', path: [] }, condition: { kind: 'group', op: 'and', children: [{ kind: 'leaf', path: [], op: 'regex', value: '123', flags: '' }] }, steps: [], projection: null }); testApp.setCollect(false); testUi.getElementById('builder-mode').click(); transitionOperation = testUi.querySelector('#condition-list select[data-testid="condition-operation"]'); transitionOperation.value = 'regex'; transitionOperation.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); const regexPath = testUi.querySelector('#condition-list input[data-testid="condition-path"]'); regexPath.value = '[]'; regexPath.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); const typedRegex = testUi.querySelector('[data-testid="condition-regex-pattern"]'); typedRegex.value = '123'; typedRegex.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); testUi.getElementById('input-text').value = '123\n"123"'; testUi.getElementById('input-format').value = 'jsonl'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true })); testUi.getElementById('input-format').dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true }));
+       let regexRun = waitForEvent(testApp, (next, status, result) => status === 'complete' && result); testUi.getElementById('run-query').click(); let regexRunResult = await regexRun;
+        check('numeric regex pattern stays literal text and matches only string input', regexRunResult.result.outputText === '"123"', JSON.stringify(regexRunResult.result));
+       typedRegex.value = '[123]'; typedRegex.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); testUi.getElementById('input-text').value = '"3"\n"abc"'; testUi.getElementById('input-text').dispatchEvent(new verifyFrame.contentWindow.Event('input', { bubbles: true }));
+        regexRun = waitForEvent(testApp, (next, status, result) => status === 'complete' && result); testUi.getElementById('run-query').click(); regexRunResult = await regexRun;
+        check('character-class regex pattern stays literal text in real execution', regexRunResult.result.outputText === '"3"', JSON.stringify({ result: regexRunResult.result, condition: testApp.getState().builder.condition.children[0] }));
+       transitionOperation = testUi.querySelector('#condition-list select[data-testid="condition-operation"]'); transitionOperation.value = 'exists'; transitionOperation.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); const regexToExistsLeaf = testApp.getState().builder.condition.children[0]; let regexToExistsRoundTrip = true; try { verifyFrame.contentWindow.JQCore.importRecipe(verifyFrame.contentWindow.JQCore.exportRecipe(testApp.getState())); } catch (_) { regexToExistsRoundTrip = false; }
+       check('regex to exists transition removes regex-only fields for recipe round trips', regexToExistsRoundTrip && Object.keys(regexToExistsLeaf).sort().join(',') === 'kind,op,path');
+        for (const arrayOp of ['any', 'all']) { testUi.getElementById('add-condition').click(); const directOperations = () => Array.from(testUi.querySelectorAll('#condition-list > .group > .children > .leaf > select[data-testid="condition-operation"]')); const arrayOperation = directOperations().at(-1); arrayOperation.value = arrayOp; arrayOperation.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); const eqOperation = directOperations().at(-1); eqOperation.value = 'eq'; eqOperation.dispatchEvent(new verifyFrame.contentWindow.Event('change', { bubbles: true })); }
+       const arrayToEqLeaves = testApp.getState().builder.condition.children.slice(-2); let arrayToEqRoundTrip = true; try { verifyFrame.contentWindow.JQCore.importRecipe(verifyFrame.contentWindow.JQCore.exportRecipe(testApp.getState())); } catch (_) { arrayToEqRoundTrip = false; }
+        check('any and all to eq transitions remove child fields for recipe round trips', arrayToEqRoundTrip && arrayToEqLeaves.every((leaf) => Object.keys(leaf).sort().join(',') === 'kind,op,path,value'));
+       const removalFrame = ui.createElement('iframe'); removalFrame.title = 'path error removal regression'; removalFrame.style.cssText = 'width:100%;height:500px;border:0'; removalFrame.src = frame.contentWindow.location.href; ui.body.append(removalFrame);
+       await new Promise((resolve, reject) => { const deadline = Date.now() + 8000; const poll = () => { if (removalFrame.contentDocument?.documentElement.dataset.uiReady === 'true') return resolve(); if (Date.now() > deadline) return reject(new Error('path removal frame did not initialize')); setTimeout(poll, 15); }; poll(); });
+       const removalUi = removalFrame.contentDocument; const removalApp = removalFrame.contentWindow.JQApp; removalUi.getElementById('input-text').value = '1'; removalUi.getElementById('input-text').dispatchEvent(new removalFrame.contentWindow.Event('input', { bubbles: true })); removalUi.getElementById('add-condition').click(); const invalidRemovalPath = removalUi.querySelector('#condition-list input[data-testid="condition-path"]'); invalidRemovalPath.value = '['; invalidRemovalPath.dispatchEvent(new removalFrame.contentWindow.Event('change', { bubbles: true })); removalUi.querySelector('#condition-list button[data-testid="condition-remove"]').click();
+       check('removing an invalid condition path clears only discarded validation', removalApp.getState().builder.condition.children.length === 0 && removalUi.getElementById('builder-warning').hidden && !removalUi.getElementById('run-query').disabled);
+        removalUi.getElementById('add-step').click(); const invalidStepPath = removalUi.querySelector('[aria-label="Transformation 1 path"]'); invalidStepPath.value = '['; invalidStepPath.dispatchEvent(new removalFrame.contentWindow.Event('change', { bubbles: true })); removalUi.querySelector('#step-list button.delete').click();
+       check('removing an invalid step path clears discarded validation', removalApp.getState().builder.steps.length === 0 && removalUi.getElementById('builder-warning').hidden && !removalUi.getElementById('run-query').disabled);
+       removalUi.getElementById('projection-toggle').click(); removalUi.getElementById('add-projection').click(); const invalidProjectionPath = removalUi.querySelector('[aria-label="Output field 1 path"]'); invalidProjectionPath.value = '['; invalidProjectionPath.dispatchEvent(new removalFrame.contentWindow.Event('change', { bubbles: true })); removalUi.getElementById('projection-toggle').click();
+       check('disabling projection clears discarded projection validation', removalApp.getState().builder.projection === null && removalUi.getElementById('builder-warning').hidden && !removalUi.getElementById('run-query').disabled);
+       check('download object URLs are revoked after click use', downloads.filter((item) => item.filename).every((item) => revokedUrls.includes(item.url)) && capturedBlobs.length > 0);
+      verifyFrame.contentWindow.Blob = NativeBlob;
+       check('JQApp exposes the requested methods', app && ['getState', 'setInput', 'setBuilder', 'setMode', 'setCustomFilter', 'setCollect', 'applyRecipe', 'run', 'cancel', 'subscribe'].every((name) => typeof app[name] === 'function'));
+      app.setInput('1', 'jsonl'); app.setBuilder({ source: { kind: 'root', path: [] }, condition: { kind: 'group', op: 'and', children: [] }, steps: [], projection: null }); app.setCollect(false); app.setMode('custom'); app.setCustomFilter('.');
+
+      let state = app.getState();
+      const originalRevision = state.revision;
+      state.inputText = 'mutated copy';
+      check('getState returns a copy', app.getState().inputText !== 'mutated copy');
+
+      let event = waitForEvent(app, (next, status) => next.revision > originalRevision && status === 'stale');
+      app.setInput('1', 'jsonl');
+      await event;
+      check('changing input increments revision and invalidates results', app.getState().revision === originalRevision + 1, JSON.stringify(app.getState()));
+
+      app.setMode('custom');
+      app.setCustomFilter('.');
+      const first = await app.run();
+      check('a simple run completes with current output', first.status === 'ok' && first.outputText === '1' && first.complete === true, JSON.stringify(first));
+
+      const afterRun = app.getState();
+      event = waitForEvent(app, (next, status, result) => status === 'stale' && result === null);
+      app.setCustomFilter('., error("stale")');
+      await event;
+      check('changing the filter invalidates the previous result', app.getState().revision > afterRun.revision, JSON.stringify(app.getState()));
+
+      const partial = await app.run();
+      check('runtime error after output is incomplete', partial.status === 'error' && partial.complete === false && partial.valueCount === 1 && partial.outputText === '1', JSON.stringify(partial));
+
+      const builder = {
+        source: { kind: 'root', path: [] },
+        condition: { kind: 'leaf', path: [], op: 'regex', value: '[', flags: '' },
+        steps: [], projection: null
+      };
+      app.setInput('', 'jsonl');
+      app.setBuilder(builder);
+      app.setMode('builder');
+      const invalidRegex = await app.run();
+      check('invalid generated regex fails before an empty stream runs', invalidRegex.status === 'error' && invalidRegex.error && invalidRegex.error.stage === 'regex', JSON.stringify(invalidRegex));
+
+      let rejected = false;
+      try { app.setInput('x'.repeat(5 * 1024 * 1024 + 1), 'jsonl'); } catch (error) { rejected = error && error.code === 'INPUT_TOO_LARGE'; }
+      check('input over 5 MiB UTF-8 bytes is rejected on the main thread', rejected);
+
+      app.setInput('1', 'jsonl');
+      app.setMode('custom');
+      app.setCustomFilter('range(0; 1000000000000)');
+      const timeoutRun = await app.run();
+      check('a long run times out at the production default', timeoutRun.status === 'timeout' && timeoutRun.complete === false, JSON.stringify(timeoutRun));
+
+      app.setCustomFilter('.');
+      const recovery = await app.run();
+      check('a timed-out worker is recreated for the next run', recovery.status === 'ok' && recovery.outputText === '1', JSON.stringify(recovery));
+
+      app.setCustomFilter('range(0; 1000000000000)');
+      const superseded = app.run();
+      app.setCustomFilter('.');
+      const current = await app.run();
+      const old = await superseded;
+      check('cancelled or older run replies cannot replace current output', current.status === 'ok' && current.outputText === '1' && old.status === 'cancelled', JSON.stringify({ old, current }));
+
+       const harness = await controllerHarness();
+      const fakeApp = harness.app;
+      const malformedBuilder = JSON.stringify(fakeApp.getState().builder);
+      let malformedAccepted = true;
+      try { fakeApp.setInput('{', 'json'); } catch (error) { malformedAccepted = false; }
+      const malformedState = fakeApp.getState();
+       const malformedResult = await fakeApp.run();
+      check('malformed input remains editable until Run', malformedAccepted && malformedState.inputText === '{' && malformedResult.status === 'error' && malformedResult.error.stage === 'input' && JSON.stringify(malformedState.builder) === malformedBuilder, JSON.stringify(malformedResult));
+
+      const exactFiveMiB = '\u00e9'.repeat(2621440);
+      let exactAccepted = true;
+      try { fakeApp.setInput(exactFiveMiB, 'jsonl'); } catch (error) { exactAccepted = false; }
+      let aboveRejected = false;
+      try { fakeApp.setInput(exactFiveMiB + 'x', 'jsonl'); } catch (error) { aboveRejected = error && error.code === 'INPUT_TOO_LARGE'; }
+      check('UTF-8 input accepts exactly 5 MiB and rejects one byte above', exactAccepted && aboveRejected && fakeApp.getState().inputText === exactFiveMiB, JSON.stringify({ exactAccepted, aboveRejected }));
+
+      fakeApp.setInput('1', 'jsonl');
+      const atomicEvents = [];
+      const removeAtomic = fakeApp.subscribe((nextState, status, nextResult) => atomicEvents.push({ revision: nextState.revision, inputText: nextState.inputText, status, result: nextResult }));
+      const atomicRun = fakeApp.run();
+      const atomicWorker = harness.workers[harness.workers.length - 1];
+      atomicEvents.length = 0;
+      fakeApp.setInput('2', 'jsonl');
+       const atomicCancelled = await atomicRun;
+      removeAtomic();
+      check('state mutation and cancellation publish one coherent transition', atomicCancelled.status === 'cancelled' && atomicEvents.length === 1 && atomicEvents[0].revision === fakeApp.getState().revision && atomicEvents[0].inputText === '2' && atomicEvents[0].status === 'stale' && atomicEvents[0].result === null && atomicWorker.terminated, JSON.stringify({ atomicCancelled, atomicEvents }));
+
+      const lateEvents = [];
+      const removeLate = fakeApp.subscribe((nextState, status, nextResult) => lateEvents.push({ status, result: nextResult }));
+      const newerRun = fakeApp.run();
+      const newerWorker = harness.workers[harness.workers.length - 1];
+      newerWorker.reply({ type: 'result', id: newerWorker.request.id, revision: newerWorker.request.revision, status: 'ok', outputText: 'newer', valueCount: 1 });
+       const newerResult = await newerRun;
+      const lateCount = lateEvents.length;
+      const newerEvent = JSON.stringify(lateEvents[lateEvents.length - 1]);
+      atomicWorker.reply({ type: 'result', id: atomicWorker.request && atomicWorker.request.id, revision: atomicWorker.request && atomicWorker.request.revision, status: 'ok', outputText: '999', valueCount: 1 });
+      check('late reply cannot replace a newer published result', newerResult.status === 'ok' && newerResult.outputText === 'newer' && lateEvents.length === lateCount && JSON.stringify(lateEvents[lateEvents.length - 1]) === newerEvent, JSON.stringify({ lateCount, newerEvent, afterLate: lateEvents[lateEvents.length - 1] }));
+      removeLate();
+
+      const cancelEvents = [];
+      const removeCancel = fakeApp.subscribe((nextState, status, nextResult) => cancelEvents.push({ status, result: nextResult }));
+      const cancelRun = fakeApp.run();
+      const cancelWorker = harness.workers[harness.workers.length - 1];
+      const cancelled = fakeApp.cancel();
+      const cancelCount = cancelEvents.length;
+      const cancelledEvent = JSON.stringify(cancelEvents[cancelEvents.length - 1]);
+      cancelWorker.reply({ type: 'result', id: cancelWorker.request.id, revision: cancelWorker.request.revision, status: 'ok', outputText: 'orphan', valueCount: 1 });
+       const cancelResult = await cancelRun;
+      check('explicit cancel stays cancelled after a late reply', cancelled.status === 'cancelled' && cancelResult.status === 'cancelled' && cancelWorker.terminated && cancelEvents.length === cancelCount && JSON.stringify(cancelEvents[cancelEvents.length - 1]) === cancelledEvent && cancelEvents[cancelEvents.length - 1].result.status === 'cancelled', JSON.stringify({ cancelCount, cancelledEvent, afterCancel: cancelEvents[cancelEvents.length - 1] }));
+      removeCancel();
+
+      const errorRun = fakeApp.run();
+      const errorWorker = harness.workers[harness.workers.length - 1];
+      errorWorker.fail('synthetic worker failure');
+       const workerError = await errorRun;
+      const recoveryRun = fakeApp.run();
+      const recoveryWorker = harness.workers[harness.workers.length - 1];
+      recoveryWorker.reply({ type: 'result', id: recoveryWorker.request.id, revision: recoveryWorker.request.revision, status: 'ok', outputText: '2', valueCount: 1 });
+       const workerRecovery = await recoveryRun;
+      check('worker error is recoverable on the next run', workerError.status === 'error' && workerError.error.stage === 'runtime' && workerRecovery.status === 'ok' && workerRecovery.outputText === '2', JSON.stringify({ workerError, workerRecovery }));
+
+      const fakeTimeoutRun = fakeApp.run();
+      const timeoutWorker = harness.workers[harness.workers.length - 1];
+      const timeoutTimer = harness.timers[harness.timers.length - 1];
+      check('production timeout is scheduled for exactly 5000 ms', timeoutTimer.delay === 5000, String(timeoutTimer.delay));
+      harness.fireTimer(timeoutTimer);
+       const timedOut = await fakeTimeoutRun;
+      check('test timer can drive timeout and terminate its worker', timedOut.status === 'timeout' && timeoutWorker.terminated, JSON.stringify(timedOut));
+
+      const reentrantHarness = await controllerHarness();
+      let reentrantRun;
+      reentrantHarness.app.subscribe((nextState, status) => {
+        if (status === 'running') reentrantHarness.app.cancel();
+      });
+      reentrantRun = reentrantHarness.app.run();
+       const reentrantResult = await reentrantRun;
+       check('reentrant subscriber cancellation cannot post orphan work', reentrantResult.status === 'cancelled' && reentrantHarness.workers[0].postCount === 0 && reentrantHarness.workers[0].terminated, JSON.stringify(reentrantResult));
+
+       const recipeHarness = await controllerHarness();
+       const recipeApp = recipeHarness.app;
+       const recipeCore = recipeHarness.core;
+       recipeApp.setInput('{"keep":true}', 'json');
+       recipeApp.setMode('custom'); recipeApp.setCustomFilter('.'); recipeApp.setCollect(true);
+       const recipeState = recipeApp.getState();
+       const recipeText = recipeCore.exportRecipe(recipeState, true);
+       const importedRecipe = recipeCore.importRecipe(recipeText);
+       check('recipe export/import round-trips active mode, collection, and explicit input', importedRecipe.mode === 'custom' && importedRecipe.collect === true && importedRecipe.inputText === '{"keep":true}' && !('revision' in importedRecipe), JSON.stringify(importedRecipe));
+       const invalidReplacementRecipe = { ...recipeState, builder: { ...recipeState.builder, steps: [{ op: 'sub', path: [], mode: 'emit', pattern: 'a', flags: '', replacement: '\\(.x + 1)' }] } };
+       const completedEvents = [];
+       const removeCompleted = recipeApp.subscribe((nextState, status, nextResult) => completedEvents.push({ revision: nextState.revision, status, result: nextResult }));
+       const completedRecipeRun = recipeApp.run();
+       const completedRecipeWorker = recipeHarness.workers[recipeHarness.workers.length - 1];
+       completedRecipeWorker.reply({ type: 'result', id: completedRecipeWorker.request.id, revision: completedRecipeWorker.request.revision, status: 'ok', outputText: '1', valueCount: 1 });
+       await completedRecipeRun;
+       const completedState = JSON.stringify(recipeApp.getState());
+       const completedResult = JSON.stringify(completedEvents[completedEvents.length - 1].result);
+       completedEvents.length = 0;
+       let invalidReplacementRejected = false;
+       try { recipeApp.applyRecipe(invalidReplacementRecipe); } catch (error) { invalidReplacementRejected = error && error.code === 'INVALID_RECIPE'; }
+       check('invalid replacement recipe in custom mode preserves completed state and result', invalidReplacementRejected && JSON.stringify(recipeApp.getState()) === completedState && completedResult !== 'null' && JSON.stringify(completedEvents) === '[]', JSON.stringify({ state: recipeApp.getState(), completedResult, events: completedEvents }));
+       const activeInvalidRun = recipeApp.run();
+       const activeInvalidWorker = recipeHarness.workers[recipeHarness.workers.length - 1];
+       const activeInvalidState = JSON.stringify(recipeApp.getState());
+       let activeInvalidRejected = false;
+       try { recipeApp.applyRecipe(invalidReplacementRecipe); } catch (error) { activeInvalidRejected = error && error.code === 'INVALID_RECIPE'; }
+       check('invalid replacement recipe while running preserves state and active worker', activeInvalidRejected && JSON.stringify(recipeApp.getState()) === activeInvalidState && !activeInvalidWorker.terminated, JSON.stringify(recipeApp.getState()));
+       recipeApp.cancel(); await activeInvalidRun;
+       const inputFree = recipeCore.importRecipe(recipeCore.exportRecipe({ ...recipeState, inputText: '{"new":1}', mode: 'builder', collect: false }, false));
+       recipeApp.applyRecipe(inputFree);
+       check('input-free recipe application preserves raw dataset while applying settings', recipeApp.getState().inputText === '{"keep":true}' && recipeApp.getState().mode === 'builder' && recipeApp.getState().collect === false, JSON.stringify(recipeApp.getState()));
+       const runningRecipe = recipeApp.run();
+       const runningWorker = recipeHarness.workers[recipeHarness.workers.length - 1];
+       const beforeInvalidRecipe = JSON.stringify(recipeApp.getState());
+       let invalidRecipeRejected = false;
+       try { recipeApp.applyRecipe({ ...inputFree, executable: 'nope' }); } catch (error) { invalidRecipeRejected = error && error.code === 'INVALID_RECIPE'; }
+       check('invalid recipe while running leaves state and active worker unchanged', invalidRecipeRejected && JSON.stringify(recipeApp.getState()) === beforeInvalidRecipe && !runningWorker.terminated, JSON.stringify(recipeApp.getState()));
+       const appliedRecipe = { ...inputFree, inputText: '{"applied":1}', mode: 'custom', customFilter: '.' };
+       recipeApp.applyRecipe(appliedRecipe);
+       const cancelledRecipeRun = await runningRecipe;
+       check('valid recipe while running applies atomically and cancels the old run', cancelledRecipeRun.status === 'cancelled' && recipeApp.getState().inputText === '{"applied":1}' && recipeApp.getState().mode === 'custom', JSON.stringify({ cancelledRecipeRun, state: recipeApp.getState() }));
+     } catch (error) {
+      check('controller harness completes', false, String(error));
+    } finally {
+      const failed = checks.filter((item) => !item.pass);
+      details.textContent = checks.map((item) => `${item.pass ? 'PASS' : 'FAIL'} ${item.name}${item.evidence ? `: ${item.evidence}` : ''}`).join('\n');
+      summary.textContent = failed.length === 0 ? `PASS (${checks.length} checks)` : `FAIL (${failed.length}/${checks.length} checks failed)`;
+      document.documentElement.dataset.testComplete = 'true';
+    }
+  }
+
+  main();
+})();
+</script>
