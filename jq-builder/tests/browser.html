@@ -166,15 +166,30 @@
       const atomicCancelled = await atomicRun;
       removeAtomic();
       check('state mutation and cancellation publish one coherent transition', atomicCancelled.status === 'cancelled' && atomicEvents.length === 1 && atomicEvents[0].revision === fakeApp.getState().revision && atomicEvents[0].inputText === '2' && atomicEvents[0].status === 'stale' && atomicEvents[0].result === null && atomicWorker.terminated, JSON.stringify({ atomicCancelled, atomicEvents }));
-      atomicWorker.reply({ type: 'result', id: atomicWorker.request && atomicWorker.request.id, revision: atomicWorker.request && atomicWorker.request.revision, status: 'ok', outputText: '999', valueCount: 1 });
-      check('late reply from terminated worker is ignored', fakeApp.getState().inputText === '2' && fakeApp.getState().revision === atomicEvents[0].revision, JSON.stringify(fakeApp.getState()));
 
+      const lateEvents = [];
+      const removeLate = fakeApp.subscribe((nextState, status, nextResult) => lateEvents.push({ status, result: nextResult }));
+      const newerRun = fakeApp.run();
+      const newerWorker = harness.workers[harness.workers.length - 1];
+      newerWorker.reply({ type: 'result', id: newerWorker.request.id, revision: newerWorker.request.revision, status: 'ok', outputText: 'newer', valueCount: 1 });
+      const newerResult = await newerRun;
+      const lateCount = lateEvents.length;
+      const newerEvent = JSON.stringify(lateEvents[lateEvents.length - 1]);
+      atomicWorker.reply({ type: 'result', id: atomicWorker.request && atomicWorker.request.id, revision: atomicWorker.request && atomicWorker.request.revision, status: 'ok', outputText: '999', valueCount: 1 });
+      check('late reply cannot replace a newer published result', newerResult.status === 'ok' && newerResult.outputText === 'newer' && lateEvents.length === lateCount && JSON.stringify(lateEvents[lateEvents.length - 1]) === newerEvent, JSON.stringify({ lateCount, newerEvent, afterLate: lateEvents[lateEvents.length - 1] }));
+      removeLate();
+
+      const cancelEvents = [];
+      const removeCancel = fakeApp.subscribe((nextState, status, nextResult) => cancelEvents.push({ status, result: nextResult }));
       const cancelRun = fakeApp.run();
       const cancelWorker = harness.workers[harness.workers.length - 1];
       const cancelled = fakeApp.cancel();
+      const cancelCount = cancelEvents.length;
+      const cancelledEvent = JSON.stringify(cancelEvents[cancelEvents.length - 1]);
       cancelWorker.reply({ type: 'result', id: cancelWorker.request.id, revision: cancelWorker.request.revision, status: 'ok', outputText: 'orphan', valueCount: 1 });
       const cancelResult = await cancelRun;
-      check('explicit cancel terminates and ignores a late reply', cancelled.status === 'cancelled' && cancelResult.status === 'cancelled' && cancelWorker.terminated && fakeApp.getState().inputText === '2', JSON.stringify({ cancelled, cancelResult }));
+      check('explicit cancel stays cancelled after a late reply', cancelled.status === 'cancelled' && cancelResult.status === 'cancelled' && cancelWorker.terminated && cancelEvents.length === cancelCount && JSON.stringify(cancelEvents[cancelEvents.length - 1]) === cancelledEvent && cancelEvents[cancelEvents.length - 1].result.status === 'cancelled', JSON.stringify({ cancelCount, cancelledEvent, afterCancel: cancelEvents[cancelEvents.length - 1] }));
+      removeCancel();
 
       const errorRun = fakeApp.run();
       const errorWorker = harness.workers[harness.workers.length - 1];
