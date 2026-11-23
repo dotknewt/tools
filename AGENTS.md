@@ -1,128 +1,39 @@
-# AGENTS.md
+# Browser tools
 
-This file provides guidance to AGENTS when working with code in this repository.
+The [hub](index.html) is the catalog. Start there to find a tool rather than
+maintaining a second list of tools or JavaScript internals here. Paths and
+commands below are relative to the repository root.
 
-## What this repo is
+## Add or change a tool
 
-A collection of self-contained browser tools hosted on GitHub Pages (https://dotknewt.github.io/tools/) that can also be opened locally. The root `index.html` is a hub that links to each tool by directory.
+- Prefer a self-contained `<name>/index.html` with inline CSS and JavaScript
+  and no build step. Use `generate-<name>` for configuration/file generators;
+  use a descriptive name for other tools.
+- Add a card to the correct hub category and update its count. Use the hub's
+  `:root` palette, typography and return link as the starting point. Reserve
+  Diamond Model vertex colors for tools that render that model.
+- Keep local input local. Document any asset or network requirement rather
+  than promising offline operation. For `jq-builder/`, read its
+  [runtime and verification guide](jq-builder/README.md) before editing the
+  worker, vendored assets, or tests.
 
-## No build system
+## Verify
 
-There is no npm, no bundler, no transpiler, no test suite. Every tool is a single `index.html` file with inline CSS and JS. There is nothing to install or compile.
-
-## Running locally
-
-Most tools work by opening the HTML file directly in a browser (`file://`). The exception is **name-generator**, which uses `fetch()` to load the JSON wordlists — browsers block `fetch()` on `file://` URLs, so it needs an HTTP server:
+Open the changed tool and follow its hub link. Exercise a normal input and a
+failure or boundary case. Most tools support `file://`; `name-generator/`
+fetches wordlists and `jq-builder/` loads worker/WASM assets over HTTP. To
+preview these, serve the checkout on loopback:
 
 ```sh
-python3 -m http.server 8080
-# then open http://localhost:8080
+python3 -m http.server 8080 --bind 127.0.0.1
 ```
 
-## Deploying
+For jq-builder, run its documented Node and browser checks; wait for the
+browser harness's final result. A page load alone is not a pass. Record what
+was exercised in the [PR checklist](.github/pull_request_template.md).
+Local verification does not deploy to GitHub Pages; a push to `main` is a
+separate release action.
 
-Push to `main`. GitHub Pages auto-deploys from the repo root — no Actions workflow or manual step needed.
-
-## Adding a new tool
-
-1. Create a directory: `<tool-name>/index.html`
-2. Add a card to the root `index.html` grid section (copy an existing `<a class="card" ...>` block)
-3. Match the shared design system (see below)
-
-## Design system
-
-All tools share a consistent dark-theme palette defined as CSS custom properties. Copy the `:root` block from `index.html` as a starting point for a new tool.
-
-| Variable | Purpose |
-|---|---|
-| `--bg` / `--surface` / `--surface-2` / `--surface-3` | Layered dark backgrounds |
-| `--text` / `--text-muted` / `--text-dim` | Three text weights |
-| `--border` / `--border-strong` | Subtle borders |
-| `--amber` `#f6ad55` | Amber — warnings / highlights |
-
-CTI-specific vertex colors (`--adversary`, `--capability`, `--infrastructure`, `--victim`) are defined in `diamond-model/` and the hub; only include them in tools that render Diamond Model content.
-
-Fonts loaded from Google Fonts: **IBM Plex Sans** (body) and **JetBrains Mono** (labels, tags, code). The hub and diamond-model use these; the name-generator uses Orbitron + Share Tech Mono for its terminal aesthetic.
-
-## Existing tools
-
-### `diamond-model/`
-CTI Diamond Model renderer (~2600 lines). Accepts a JSON object or array of event objects, renders an interactive SVG diamond with Kill Chain phase navigation. Supports a graphical edit form that syncs bidirectionally with the raw JSON editor. Key JS globals: `currentEvents`, `currentIndex`, `selectedVertex`, `editMode`. Export targets: SVG (via DOM clone) and JSON copy.
-
-### `mind-map/`
-Full SVG canvas mind-mapping tool. State lives in a single object `S` (`nodes`, `edges`, `sel`, `tool`, `pan`, `zoom`). Nodes are rendered as SVG `<rect>`/`<ellipse>`/`<polygon>` elements with a text overlay; edges support straight, curved, and mind-map "branch" Bezier styles. Undo/redo via JSON snapshots in a `history` array. Export: SVG and JSON.
-
-### `name-generator/`
-Codename generator for CTI incident names and threat actor names. Fetches three flat JSON wordlist arrays at startup (`adjectives.json`, `entities.json`, `events.json` from `./wordlists/`). Generation logic is in `buildName()` with exclusion filtering via `isExcluded()`. To extend vocabulary, edit the wordlist JSON files directly — they are flat string arrays.
-
-### `generate-ubuntu-autoinstall/`
-Ubuntu autoinstall.yaml generator. Form-to-YAML tool covering identity, locale, storage layout presets (direct/LVM/ZFS with optional disk targeting), SSH, packages, updates, and late commands. JSON schema reference at `generate-ubuntu-autoinstall/schema/ubuntu-autoinstall.json`. Password field expects a pre-hashed value (`openssl passwd -6`).
-
-### `generate-debian-preseed/`
-Debian preseed.cfg generator. Produces `d-i key type value` format covering locale, network, mirror, accounts, clock, partitioning (LVM/regular/encrypted), package selection, and bootloader. Opens directly from `file://` — no server needed.
-
-### `generate-windows-unattend/`
-Windows Autounattend.xml generator. Covers language/locale, disk partitioning (GPT/UEFI or MBR/BIOS), image install, user accounts, OOBE suppression, autologon, and first-logon commands. Produces well-formed XML with `urn:schemas-microsoft-com:unattend` namespace.
-
-### `ioc-extractor/`
-IOC extractor & defanger. Paste any text; it refangs defanged notation (`hxxp`, `[.]`, `[at]`, `[dot]`) then extracts URLs, domains, IPv4/IPv6, emails, MD5/SHA-1/SHA-256, and CVE IDs with regexes (see the `RE` object and `extract()`). Domain false positives are filtered against a built-in TLD allowlist (`TLDS`). Output panels per category with a global defang/refang display toggle; export CSV/JSON. Extraction runs on a 300ms input debounce.
-
-### `incident-timeline/`
-Incident/intrusion timeline builder. State in a single object `S` (`title`, `events[]` with `ts`/`title`/`category`/`description`), persisted to localStorage. Renders a vertical-spine SVG (built as a string in `buildSVG()`, literal hex colors so exports are standalone): alternating left/right cards, category dots using the Diamond Model vertex palette, and relative gap labels ("+2d 4h") between events. Click a card (SVG or list) to edit. Export SVG/JSON, import JSON.
-
-### `subnet-calculator/`
-IPv4 CIDR calculator, four sections on one page: CIDR info (network/broadcast/mask/wildcard/host range, accepts `/nn` or dotted-mask input), contains check (IP or subnet vs. network), split into smaller subnets (output capped at 1024 rows), and summarize (merge an IP/CIDR list into the minimal covering CIDR set via range merge + `rangeToCIDRs()`). All math on 32-bit unsigned ints (`>>> 0`); everything renders live on input.
-
-### `generate-cloud-init/`
-Cloud-init `user-data` (`#cloud-config`) generator, same form/output UX as the other `generate-` tools. Covers hostname/timezone/locale, package update/upgrade + package list, repeatable user blocks (groups, sudo NOPASSWD, lock_passwd, pre-hashed passwd via `openssl passwd -6`, SSH keys) with optional `- default` user, ssh_pwauth/disable_root, repeatable write_files (block-scalar content), runcmd, and final_message. YAML is emitted by hand (`yamlStr()`, `pushBlockScalar()`), no library.
-
-### `concept-graph/`
-Typed node/edge graph visualizer for data flow, event pub/sub, and task dependencies. Users write a small line-oriented DSL (`id [kind]`, `A -> B`, `A emits X`, `A blocks B`, etc. — grammar lives in the `parse()`/`RELATIONS` section of the source); output re-renders on a 250ms debounce as four tabs: a live SVG **Preview** (via the Mermaid CDN, the only tool in this repo that needs network on first load), **Mermaid** fenced code, raw **ASCII** box-and-arrow art (own layered/Sugiyama-style layout with cycle-breaking), and canonical **JSON**. Parse errors surface non-blocking in a strip above the editor; the ASCII renderer caps at 40 nodes.
-
-### `timestamp-converter/`
-DFIR timestamp converter. Paste any value; auto-detects Unix epoch (s/ms/µs/ns), Windows FILETIME (also LDAP/AD), WebKit/Chrome, or ISO 8601 via a digit-count heuristic bounded to a 1970–2200 sanity window, with "also valid as" chips and a format-override select (Mac Absolute Time is override-only — it collides with Unix seconds). All math on BigInt nanoseconds since the Unix epoch (`FORMATS` table, `parseInput()`, `detectNumeric()`); renders every format live with per-row copy buttons, human UTC/local, and a relative delta.
-
-### `generate-kickstart/`
-RHEL/Fedora/AlmaLinux kickstart (`ks.cfg`) generator, same form/output UX as the other `generate-` tools. Covers install mode/source, network (DHCP or static), rootpw/user (pre-hashed via `openssl passwd -6`, `--iscrypted`), SELinux/firewall/services, partitioning (zerombr, clearpart, ignoredisk, autopart lvm/plain/thinp), `%packages` (environment group + list), and an optional `%post` script.
-
-### `cron-builder/`
-Crontab expression builder/decoder. A main expression input, preset select, and five per-field inputs stay bidirectionally synced (`fromExpr()`/`fromFields()`/`fromPreset()` with a `syncing` guard; expression is source of truth). Parser (`parseField()`/`parseCron()`) supports lists/ranges/steps, Vixie bare `a/n`, month/day names, DOW 7→0, and `@` aliases; keeps un-expanded per-item structure in `elems` for the English renderer (`describe()`) and systemd translator (`toOnCalendar()`), expanded `Set`s for matching. Faithful Vixie day semantics: `(domStar || dowStar) ? AND : OR` off the raw tokens' first char. Next 10 runs computed by day-iteration (1600-day cap → "never fires"); OnCalendar emits two lines when cron's DOM/DOW OR needs splitting.
-
-### `ipv6-subnet-calculator/`
-IPv6 companion to `subnet-calculator/`, same four sections: prefix info (canonical RFC 5952 compressed + expanded forms, address counts as powers of two, special-purpose kind detection from an ordered `KINDS` table), contains check, split into subnets (capped at 1024 rows), and summarize (range merge + BigInt `rangeToCIDRs()`). All math on BigInt 128-bit values; `parseIP()` handles `::` compression and embedded IPv4 tails (`::ffff:192.0.2.1`); bare addresses are treated as /128.
-
-### `tailscale-acl-tester/`
-Offline Tailscale ACL policy evaluator. Paste a HuJSON policy (own comment/trailing-comma stripper `hujsonParse()`, no library); test src → dst:port:proto queries for an ALLOW/DENY verdict listing the matching `acls[i]`/`grants[j]` rules, and auto-run the policy's `tests` section with per-assertion pass/fail. Core is `evaluate()` + `selectorMatches()` (returns `true`/`false`/`'maybe'` — offline-unverifiable autogroups count as matches with an amber caveat): resolves nested `groups` (cycle-guarded), `hosts` (values may be CIDRs), tags, and autogroups; IPv4 (uint32) + IPv6 (BigInt) CIDR containment; default-deny; acl dst ports split at the last colon (IPv6-safe). Parse errors surface in a non-blocking err-bar while the last good policy stays rendered.
-
-### `jwt-decoder/`
-JWT decoder. Paste a token (whitespace/quotes/`Bearer ` prefix stripped); decodes header and payload from base64url, renders syntax-highlighted JSON, a claims table with human-readable `exp`/`nbf`/`iat` (UTC + relative delta, expiry status chips), and warnings (`alg: none`, `jku`/`x5u` key URLs). Optional signature verification runs in WebCrypto (`verifyHS()`/`verifyAsym()`): HS* with a shared secret (raw or base64url), RS*/PS*/ES* with an SPKI PEM or JWK public key. JWEs (5 segments) are detected and reported as undecodable.
-
-### `csr-decoder/`
-PKCS#10 CSR decoder with its own minimal DER parser (`parseDER()`, no library). Shows subject DN (OID name map), public key details (RSA modulus size/exponent, EC curve), requested extensions from the extensionRequest attribute (SAN, keyUsage, extendedKeyUsage, basicConstraints), other attributes (challengePassword flagged), signature algorithm, and SHA-256 fingerprints of the CSR and SPKI. Verifies the self-signature with the embedded key via WebCrypto (`checkSignature()`; ECDSA DER→P1363 conversion in `ecdsaDerToP1363()`). Warns on RSA <2048, SHA-1/MD5 signatures, and missing SANs; rejects pasted certificates and private keys with a pointed message.
-
-### `email-header-analyzer/`
-DFIR email header analyzer. Paste raw headers or a full .eml (analysis stops at the first blank line); headers are unfolded and RFC 2047 encoded-words decoded (`decodeWords()`). Renders SPF/DKIM/DMARC verdict chips parsed from Authentication-Results (topmost result per method wins), a Checks list (From vs Return-Path / Reply-To / DKIM d= org-domain alignment via `aligned()`, multiple From headers, missing Date/Message-ID), the Received chain oldest-first with per-hop delays, out-of-order timestamp flags, and private-IP tagging (`parseReceived()`), DKIM-Signature tag summaries (d=/s=/a=), and a collapsible all-headers table.
-
-### `rom-organizer/`
-Game ROM verifier/organizer against No-Intro/Redump Logiqx DAT files. State in a single object `S`; DAT parsed via DOMParser into a `bySizeCrc` Map (`size:crc` keys, value = rom-id array since BIOS roms collide across games). Own zip central-directory reader (`findEOCD()`/`readZip()`) matches zipped ROMs from stored CRC32+size with no decompression (zip64 detected, reported unsupported); hashing is a table CRC32 plus hand-rolled incremental `Sha1` (tie-breaks) and `Md5` (RetroAchievements hash, iNES/SNES-copier header strip in `raSkip()`). Optional user-fetched RA game-list JSON badges files and feeds the 1G1R ranking. 1G1R engine (`parseTags()`/`apply1g1r()`) groups by `cloneof` or base title, filters beta/proto/non-English, ranks by region priority + revision; losers move to `_removed/`, never deleted. Renames via `FileSystemFileHandle.move()` — Chromium-only; `webkitdirectory` read-only fallback elsewhere.
-
-### `ufw-rule-builder/`
-ufw firewall rule builder and explainer, two tabs. **Build:** form (action allow/deny/reject/limit, delete toggle, direction, interface, from/to + ports, protocol, comment, service presets) → generated command with live plain-English summary, IPv4/IPv6 applicability note, and inline validation; emits simple syntax (`ufw allow 22/tcp`) when only dest port/proto is set, full syntax otherwise. Optional rule list accumulates commands into a copyable block. **Explain:** paste ufw commands (with/without `sudo`/`ufw`) and/or `ufw status [numbered|verbose]` output; per-line rule cards via `parseUfwCommand()`/`parseStatusLine()`, unparseable lines get non-blocking warning cards. Shared rule-object shape across `renderCommand()`/`describeRule()`/both parsers. App profiles, route rules, insert positions out of scope.
-
-## Tool naming convention
-
-Config/file generator tools use the prefix `generate-<name>/` (e.g. `generate-ubuntu-autoinstall/`). Visualizers and interactive tools use a plain descriptive name (e.g. `diamond-model/`, `mind-map/`).
-
-## Agent skills
-
-### Issue tracker
-
-Issues live in GitHub Issues. Before issue operations, read `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Use the five canonical triage labels. Before triaging, read `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context layout. Before exploring domain concepts or architecture decisions, read `docs/agents/domain.md`.
+For issue work read [issue tracking](docs/agents/issue-tracker.md); for triage,
+use the [five canonical labels](docs/agents/triage-labels.md). Before changing
+domain terms or architecture, read [domain documentation](docs/agents/domain.md).
