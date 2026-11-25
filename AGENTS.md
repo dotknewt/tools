@@ -1,7 +1,5 @@
 # Browser tools
 
-- Before creating or locating a design, spec, implementation plan, or handoff, read `~/Projects/instructions/document-placement.instructions.md`.
-
 The [hub](index.html) is the catalog. Start there to find a tool rather than
 maintaining a second list of tools or JavaScript internals here. Paths and
 commands below are relative to the repository root.
